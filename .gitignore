@@ -1,0 +1,5 @@
+*.log
+*__pycache__/*
+*.DS_Store
+input/FACT_TABLE.csv
+input/drive-download-20260419T180848Z-3-001.zip
