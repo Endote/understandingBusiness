@@ -1,0 +1,733 @@
+---
+title: "PaperRush Feature Inventory EDA: Weeklies vs SIP"
+author: "PaperRush analysis"
+date: "`r format(Sys.time(), '%Y-%m-%d')`"
+output:
+  html_document:
+    toc: true
+    toc_depth: 3
+    number_sections: true
+    df_print: paged
+params:
+  input_dir: "input"
+  output_subdir: "output/feature_inventory_eda"
+  row_sample_n: 250000
+  top_n_plot: 20
+  top_n_preview: 50
+  max_interactive_rows: 5000
+  include_demographics: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo = TRUE,
+  warning = FALSE,
+  message = FALSE,
+  fig.width = 12,
+  fig.height = 7
+)
+
+required_packages <- c(
+  "data.table",
+  "dplyr",
+  "DT",
+  "ggplot2",
+  "knitr",
+  "skimr",
+  "scales",
+  "stringr",
+  "tidyr"
+)
+
+missing_packages <- required_packages[
+  !vapply(required_packages, requireNamespace, logical(1), quietly = TRUE)
+]
+
+if (length(missing_packages) > 0) {
+  stop(
+    paste0(
+      "Missing required R packages: ",
+      paste(missing_packages, collapse = ", "),
+      ". Install with: install.packages(c(",
+      paste(sprintf("\"%s\"", missing_packages), collapse = ", "),
+      "))"
+    )
+  )
+}
+
+library(data.table)
+library(dplyr)
+library(DT)
+library(ggplot2)
+library(knitr)
+library(skimr)
+library(scales)
+library(stringr)
+library(tidyr)
+
+options(
+  scipen = 999,
+  datatable.print.nrows = 50,
+  DT.options = list(pageLength = 25, scrollX = TRUE)
+)
+
+`%||%` <- function(x, y) {
+  if (is.null(x) || length(x) == 0 || all(is.na(x))) y else x
+}
+
+normalize_names <- function(dt) {
+  data.table::setnames(dt, names(dt), tolower(names(dt)))
+  dt
+}
+
+clean_character <- function(x) {
+  x <- as.character(x)
+  x <- trimws(x)
+  x[x == ""] <- NA_character_
+  x
+}
+
+clean_boolish <- function(x) {
+  x <- clean_character(x)
+  upper <- toupper(x)
+  dplyr::case_when(
+    upper %in% c("TRUE", "T", "YES", "Y", "1") ~ "TRUE",
+    upper %in% c("FALSE", "F", "NO", "N", "0") ~ "FALSE",
+    is.na(upper) ~ NA_character_,
+    TRUE ~ x
+  )
+}
+
+coerce_numeric <- function(dt, cols) {
+  for (col in intersect(cols, names(dt))) {
+    dt[, (col) := suppressWarnings(as.numeric(get(col)))]
+  }
+  invisible(dt)
+}
+
+current_rmd_dir <- function() {
+  input <- tryCatch(knitr::current_input(dir = TRUE), error = function(e) NULL)
+  if (is.null(input) || !nzchar(input)) {
+    return(getwd())
+  }
+  dirname(normalizePath(input, winslash = "/", mustWork = FALSE))
+}
+
+resolve_path <- function(path, must_work = TRUE) {
+  candidates <- c(
+    path,
+    file.path(current_rmd_dir(), path),
+    file.path(current_rmd_dir(), "..", path)
+  )
+  existing <- candidates[file.exists(candidates)]
+  if (length(existing) > 0) {
+    return(normalizePath(existing[1], winslash = "/", mustWork = TRUE))
+  }
+  if (isTRUE(must_work)) {
+    stop("Path does not exist: ", path)
+  }
+  normalizePath(candidates[1], winslash = "/", mustWork = FALSE)
+}
+
+make_output_dir <- function(base_dir) {
+  out_dir <- file.path(resolve_path(base_dir, must_work = FALSE), format(Sys.time(), "%Y%m%d_%H%M%S"))
+  dir.create(out_dir, recursive = TRUE, showWarnings = FALSE)
+  out_dir
+}
+
+write_output <- function(x, name) {
+  data.table::fwrite(x, file.path(output_dir, paste0(name, ".csv")), na = "")
+  invisible(x)
+}
+
+display_table <- function(x, caption = NULL, page_length = 25) {
+  if (nrow(x) > params$max_interactive_rows) {
+    x <- head(x, params$max_interactive_rows)
+    caption <- paste0(
+      caption %||% "Table",
+      " (showing first ",
+      scales::comma(params$max_interactive_rows),
+      " rows; full table written to CSV)"
+    )
+  }
+  DT::datatable(
+    as.data.frame(x),
+    caption = caption,
+    rownames = FALSE,
+    filter = "top",
+    options = list(pageLength = page_length, scrollX = TRUE)
+  )
+}
+
+historical_input_dir <- resolve_path(params$input_dir, must_work = TRUE)
+holdout_dir <- file.path(historical_input_dir, "Printing Schedule (On Sale July 2024)")
+output_dir <- make_output_dir(params$output_subdir)
+set.seed(42)
+```
+
+# Scope
+
+This notebook intentionally reads only the historical training files directly under `r historical_input_dir`.
+It does not read `r holdout_dir`, which is the July 2024 holdout folder.
+
+The analysis grain is one historical `STORE_ID x PRODUCT_ID` fact row after joining product, store, and optionally demographic attributes. Tables are grouped by `TYPE`, with the practical focus on `Weeklies` and `SIP`.
+
+```{r paths}
+paths <- list(
+  fact = file.path(historical_input_dir, "FACT_TABLE.csv"),
+  product = file.path(historical_input_dir, "DIM_PRODUCT.csv"),
+  store = file.path(historical_input_dir, "DIM_STORE.csv"),
+  demographics = file.path(historical_input_dir, "DEMOGRAPHICS.csv")
+)
+
+path_audit <- data.table(
+  source = names(paths),
+  path = unlist(paths, use.names = FALSE),
+  exists = file.exists(unlist(paths, use.names = FALSE))
+)
+path_audit[, july_holdout_path := grepl("Printing Schedule \\(On Sale July 2024\\)", path)]
+write_output(path_audit, "path_audit")
+display_table(path_audit, "Historical input paths used by this EDA")
+```
+
+# Load And Join Data
+
+```{r load-data}
+fact <- fread(paths$fact, showProgress = TRUE) |> normalize_names()
+product <- fread(paths$product, showProgress = TRUE) |> normalize_names()
+store <- fread(paths$store, showProgress = TRUE) |> normalize_names()
+
+demographics <- NULL
+if (isTRUE(params$include_demographics) && file.exists(paths$demographics)) {
+  demographics <- fread(paths$demographics, showProgress = TRUE) |> normalize_names()
+}
+
+coerce_numeric(fact, c("store_id", "product_id", "soldqty", "drawqty"))
+coerce_numeric(product, c("product_id", "price"))
+coerce_numeric(store, c("store_id", "facings", "pockets"))
+
+product[, `:=`(
+  barcode = clean_character(barcode),
+  title = clean_character(title),
+  type = clean_character(type),
+  segment = clean_character(segment),
+  subsegment = clean_character(subsegment),
+  frequency = clean_character(frequency),
+  onsaledate = as.IDate(onsaledate),
+  offsaledate = as.IDate(offsaledate)
+)]
+
+store[, `:=`(
+  postal_code = clean_character(postal_code),
+  store_chain = clean_character(store_chain),
+  region = clean_character(region),
+  classoftrade = clean_character(classoftrade),
+  merchandised = clean_boolish(merchandised)
+)]
+
+if (!is.null(demographics)) {
+  demographics[, postal_code := clean_character(postal_code)]
+  demographic_numeric_cols <- setdiff(names(demographics), "postal_code")
+  coerce_numeric(demographics, demographic_numeric_cols)
+
+  demographics <- demographics[
+    ,
+    lapply(.SD, function(x) {
+      if (is.numeric(x)) {
+        if (all(is.na(x))) NA_real_ else max(x, na.rm = TRUE)
+      } else {
+        x[which.max(!is.na(x))]
+      }
+    }),
+    by = postal_code
+  ]
+}
+
+setkey(product, product_id)
+setkey(store, store_id)
+setkey(fact, product_id)
+analysis <- product[fact, nomatch = 0]
+setkey(analysis, store_id)
+analysis <- store[analysis, nomatch = 0]
+
+if (!is.null(demographics)) {
+  setkey(demographics, postal_code)
+  setkey(analysis, postal_code)
+  analysis <- demographics[analysis]
+}
+
+analysis[, `:=`(
+  type = fifelse(is.na(type), "UNKNOWN", type),
+  issue_length_days = as.numeric(offsaledate - onsaledate),
+  onsale_month = as.integer(format(onsaledate, "%m")),
+  onsale_week = as.integer(strftime(onsaledate, format = "%V")),
+  sellthrough = fifelse(drawqty > 0, soldqty / drawqty, NA_real_),
+  oversupply_units = pmax(drawqty - pmax(soldqty, 0), 0),
+  stockout_proxy_flag = drawqty > 0 & soldqty == drawqty,
+  negative_soldqty_flag = soldqty < 0,
+  zero_soldqty_flag = soldqty == 0
+)]
+
+target_types <- c("Weeklies", "SIP")
+analysis <- analysis[type %in% target_types]
+analysis[, type := factor(type, levels = target_types)]
+```
+
+```{r data-audit}
+data_audit <- rbindlist(list(
+  data.table(table = "FACT_TABLE", rows = nrow(fact), columns = ncol(fact)),
+  data.table(table = "DIM_PRODUCT", rows = nrow(product), columns = ncol(product)),
+  data.table(table = "DIM_STORE", rows = nrow(store), columns = ncol(store)),
+  data.table(table = "DEMOGRAPHICS", rows = ifelse(is.null(demographics), 0L, nrow(demographics)), columns = ifelse(is.null(demographics), 0L, ncol(demographics))),
+  data.table(table = "ANALYSIS_PANEL_WEEKLIES_SIP", rows = nrow(analysis), columns = ncol(analysis))
+))
+
+type_overview <- analysis[
+  ,
+  .(
+    fact_rows = .N,
+    stores = uniqueN(store_id),
+    products = uniqueN(product_id),
+    titles = uniqueN(title, na.rm = TRUE),
+    segments = uniqueN(segment, na.rm = TRUE),
+    subsegments = uniqueN(subsegment, na.rm = TRUE),
+    first_onsale = min(onsaledate, na.rm = TRUE),
+    last_onsale = max(onsaledate, na.rm = TRUE),
+    soldqty_sum = sum(soldqty, na.rm = TRUE),
+    drawqty_sum = sum(drawqty, na.rm = TRUE),
+    aggregate_sellthrough = sum(soldqty, na.rm = TRUE) / sum(drawqty, na.rm = TRUE),
+    row_avg_sellthrough = mean(sellthrough, na.rm = TRUE),
+    zero_sales_rate = mean(zero_soldqty_flag, na.rm = TRUE),
+    negative_sales_rate = mean(negative_soldqty_flag, na.rm = TRUE),
+    stockout_proxy_rate = mean(stockout_proxy_flag, na.rm = TRUE)
+  ),
+  by = type
+]
+
+write_output(data_audit, "data_audit")
+write_output(type_overview, "type_overview")
+
+display_table(data_audit, "Loaded data audit")
+display_table(type_overview, "Weeklies vs SIP row-grain overview")
+```
+
+# Feature Lists
+
+```{r feature-lists}
+base_categorical_features <- c(
+  "title",
+  "barcode",
+  "segment",
+  "subsegment",
+  "frequency",
+  "store_chain",
+  "region",
+  "classoftrade",
+  "merchandised",
+  "postal_code"
+)
+
+engineered_categorical_features <- c(
+  "onsale_month",
+  "onsale_week"
+)
+
+base_numeric_features <- c(
+  "soldqty",
+  "drawqty",
+  "sellthrough",
+  "oversupply_units",
+  "price",
+  "issue_length_days",
+  "facings",
+  "pockets"
+)
+
+demographic_numeric_features <- if (!is.null(demographics)) {
+  setdiff(names(demographics), "postal_code")
+} else {
+  character(0)
+}
+
+categorical_features <- intersect(
+  c(base_categorical_features, engineered_categorical_features),
+  names(analysis)
+)
+
+numeric_features <- intersect(
+  c(base_numeric_features, demographic_numeric_features),
+  names(analysis)
+)
+
+feature_inventory <- data.table(
+  feature = c(categorical_features, numeric_features),
+  feature_role = c(rep("categorical", length(categorical_features)), rep("numeric", length(numeric_features)))
+)
+
+write_output(feature_inventory, "feature_inventory")
+display_table(feature_inventory, "Features profiled in this notebook")
+```
+
+# Categorical Values
+
+The table in this section is the full inventory of categorical values by product type and feature. It is also written to `categorical_value_inventory.csv` in the output directory.
+
+```{r categorical-inventory}
+categorical_summary_one <- function(dt, feature) {
+  value <- as.character(dt[[feature]])
+  value[is.na(value) | trimws(value) == ""] <- "(missing)"
+  tmp <- data.table(
+    type = dt$type,
+    feature = feature,
+    value = value,
+    product_id = dt$product_id,
+    store_id = dt$store_id,
+    soldqty = dt$soldqty,
+    drawqty = dt$drawqty,
+    sellthrough = dt$sellthrough,
+    zero_soldqty_flag = dt$zero_soldqty_flag,
+    stockout_proxy_flag = dt$stockout_proxy_flag
+  )
+
+  tmp[
+    ,
+    .(
+      row_count = .N,
+      row_share_within_type_feature = .N / .N,
+      product_count = uniqueN(product_id),
+      store_count = uniqueN(store_id),
+      soldqty_sum = sum(soldqty, na.rm = TRUE),
+      drawqty_sum = sum(drawqty, na.rm = TRUE),
+      aggregate_sellthrough = sum(soldqty, na.rm = TRUE) / sum(drawqty, na.rm = TRUE),
+      row_avg_sellthrough = mean(sellthrough, na.rm = TRUE),
+      zero_sales_rate = mean(zero_soldqty_flag, na.rm = TRUE),
+      stockout_proxy_rate = mean(stockout_proxy_flag, na.rm = TRUE)
+    ),
+    by = .(type, feature, value)
+  ][
+    ,
+    row_share_within_type_feature := row_count / sum(row_count),
+    by = .(type, feature)
+  ][order(type, feature, -row_count, value)]
+}
+
+categorical_value_inventory <- rbindlist(
+  lapply(categorical_features, function(feature) categorical_summary_one(analysis, feature)),
+  use.names = TRUE,
+  fill = TRUE
+)
+
+categorical_cardinality <- categorical_value_inventory[
+  ,
+  .(
+    distinct_values = .N,
+    missing_values_present = any(value == "(missing)"),
+    largest_value_row_share = max(row_share_within_type_feature, na.rm = TRUE),
+    top_value = value[which.max(row_count)]
+  ),
+  by = .(type, feature)
+][order(type, -distinct_values)]
+
+write_output(categorical_cardinality, "categorical_cardinality")
+write_output(categorical_value_inventory, "categorical_value_inventory")
+
+display_table(categorical_cardinality, "Categorical feature cardinality by Weeklies and SIP")
+display_table(categorical_value_inventory, "Full categorical value inventory by Weeklies and SIP")
+```
+
+```{r categorical-preview}
+categorical_preview <- categorical_value_inventory[
+  ,
+  head(.SD, params$top_n_preview),
+  by = .(type, feature)
+]
+
+display_table(categorical_preview, paste0("Top ", params$top_n_preview, " categorical values per feature and type"))
+```
+
+```{r categorical-cardinality-plot}
+ggplot(categorical_cardinality, aes(x = reorder(feature, distinct_values), y = distinct_values, fill = type)) +
+  geom_col(position = "dodge") +
+  coord_flip() +
+  scale_y_continuous(labels = comma) +
+  labs(
+    title = "Categorical Cardinality By Product Type",
+    x = NULL,
+    y = "Distinct values"
+  ) +
+  theme_minimal(base_size = 12) +
+  theme(legend.position = "top")
+```
+
+```{r top-categorical-values-plot}
+plot_cats <- categorical_value_inventory[
+  feature %in% c("segment", "subsegment", "frequency", "store_chain", "region", "classoftrade", "merchandised"),
+  head(.SD, params$top_n_plot),
+  by = .(type, feature)
+]
+
+ggplot(plot_cats, aes(x = reorder(value, row_count), y = row_count, fill = type)) +
+  geom_col(show.legend = FALSE) +
+  coord_flip() +
+  facet_grid(type ~ feature, scales = "free_y", space = "free_y") +
+  scale_y_continuous(labels = comma) +
+  labs(
+    title = "Most Common Categorical Values",
+    x = NULL,
+    y = "Historical row count"
+  ) +
+  theme_minimal(base_size = 10)
+```
+
+# Numerical Feature Ranges
+
+The main numeric table gives range and distribution statistics separately for Weeklies and SIP. It is also written to `numeric_feature_ranges.csv`.
+
+```{r numeric-ranges}
+numeric_summary_one <- function(dt, feature) {
+  x <- suppressWarnings(as.numeric(dt[[feature]]))
+  data.table(type = dt$type, value = x)[
+    ,
+    {
+      clean <- value[!is.na(value)]
+      qs <- if (length(clean) > 0) {
+        as.numeric(stats::quantile(clean, probs = c(0.01, 0.05, 0.25, 0.50, 0.75, 0.95, 0.99), na.rm = TRUE, names = FALSE, type = 7))
+      } else {
+        rep(NA_real_, 7)
+      }
+      .(
+        feature = feature,
+        row_count = .N,
+        non_missing_count = sum(!is.na(value)),
+        missing_count = sum(is.na(value)),
+        missing_rate = mean(is.na(value)),
+        distinct_values = uniqueN(value, na.rm = TRUE),
+        min = ifelse(length(clean) > 0, min(clean), NA_real_),
+        p01 = qs[1],
+        p05 = qs[2],
+        q25 = qs[3],
+        median = qs[4],
+        mean = ifelse(length(clean) > 0, mean(clean), NA_real_),
+        q75 = qs[5],
+        p95 = qs[6],
+        p99 = qs[7],
+        max = ifelse(length(clean) > 0, max(clean), NA_real_),
+        sd = ifelse(length(clean) > 1, stats::sd(clean), NA_real_),
+        negative_count = sum(value < 0, na.rm = TRUE),
+        zero_count = sum(value == 0, na.rm = TRUE)
+      )
+    },
+    by = type
+  ][, .(
+    type,
+    feature,
+    row_count,
+    non_missing_count,
+    missing_count,
+    missing_rate,
+    distinct_values,
+    min,
+    p01,
+    p05,
+    q25,
+    median,
+    mean,
+    q75,
+    p95,
+    p99,
+    max,
+    sd,
+    negative_count,
+    zero_count
+  )]
+}
+
+numeric_feature_ranges <- rbindlist(
+  lapply(numeric_features, function(feature) numeric_summary_one(analysis, feature)),
+  use.names = TRUE,
+  fill = TRUE
+)[order(type, feature)]
+
+write_output(numeric_feature_ranges, "numeric_feature_ranges")
+display_table(numeric_feature_ranges, "Numeric feature ranges by Weeklies and SIP")
+```
+
+```{r numeric-ranges-plot}
+range_plot <- numeric_feature_ranges[
+  non_missing_count > 0 & is.finite(p01) & is.finite(p99) & p01 != p99
+]
+
+ggplot(range_plot, aes(x = p01, xend = p99, y = reorder(feature, p99), color = type)) +
+  geom_segment(position = position_dodge(width = 0.7), linewidth = 1.2) +
+  geom_point(aes(x = median), position = position_dodge(width = 0.7), size = 2) +
+  facet_wrap(~ type, scales = "free_x") +
+  scale_x_continuous(labels = comma) +
+  labs(
+    title = "Numeric Feature Robust Ranges",
+    subtitle = "Segment spans p01 to p99; point marks median",
+    x = "Value",
+    y = NULL
+  ) +
+  theme_minimal(base_size = 11) +
+  theme(legend.position = "none")
+```
+
+```{r numeric-distribution-sample}
+sample_n <- min(params$row_sample_n, nrow(analysis))
+analysis_sample <- analysis[sample(.N, sample_n)]
+
+numeric_plot_features <- intersect(
+  c("soldqty", "drawqty", "sellthrough", "oversupply_units", "price", "issue_length_days", "facings", "pockets", "population"),
+  numeric_features
+)
+
+numeric_sample_long <- melt(
+  analysis_sample,
+  id.vars = "type",
+  measure.vars = numeric_plot_features,
+  variable.name = "feature",
+  value.name = "value"
+)
+numeric_sample_long <- numeric_sample_long[!is.na(value) & is.finite(value)]
+
+ggplot(numeric_sample_long, aes(x = type, y = value, fill = type)) +
+  geom_boxplot(outlier.alpha = 0.08) +
+  facet_wrap(~ feature, scales = "free_y") +
+  scale_y_continuous(labels = comma) +
+  labs(
+    title = "Sampled Numeric Distributions By Product Type",
+    subtitle = paste("Sampled rows:", comma(sample_n)),
+    x = NULL,
+    y = "Value"
+  ) +
+  theme_minimal(base_size = 11) +
+  theme(legend.position = "none")
+```
+
+# Missingness
+
+```{r missingness}
+missingness_by_type <- rbindlist(lapply(c(categorical_features, numeric_features), function(feature) {
+  x <- analysis[[feature]]
+  data.table(type = analysis$type, feature = feature, feature_role = ifelse(feature %in% categorical_features, "categorical", "numeric"), missing = is.na(x) | (is.character(x) & trimws(x) == ""))[
+    ,
+    .(
+      row_count = .N,
+      missing_count = sum(missing),
+      missing_rate = mean(missing)
+    ),
+    by = .(type, feature, feature_role)
+  ]
+}))
+
+write_output(missingness_by_type, "missingness_by_type")
+display_table(missingness_by_type[order(type, -missing_rate, feature)], "Missingness by feature and product type")
+```
+
+## Skimr By Product Type
+
+This section adds standard `skimr` summaries for each product type separately so the raw missing counts are visible in one familiar table per group.
+
+```{r skimr-by-type}
+skim_columns <- setdiff(names(analysis), "type")
+
+skim_by_type <- lapply(target_types, function(current_type) {
+  skim_tbl <- analysis[type == current_type, ..skim_columns] |>
+    as.data.frame() |>
+    skimr::skim_without_charts()
+
+  skim_tbl <- as.data.table(skim_tbl)
+  skim_tbl[, type := current_type]
+  data.table::setcolorder(skim_tbl, c("type", setdiff(names(skim_tbl), "type")))
+  skim_tbl
+})
+
+skim_weeklies <- skim_by_type[[which(target_types == "Weeklies")]]
+skim_sip <- skim_by_type[[which(target_types == "SIP")]]
+skim_combined <- rbindlist(skim_by_type, use.names = TRUE, fill = TRUE)
+
+write_output(skim_weeklies, "skimr_weeklies")
+write_output(skim_sip, "skimr_sip")
+write_output(skim_combined, "skimr_by_type")
+
+display_table(skim_weeklies, "skimr summary for Weeklies")
+display_table(skim_sip, "skimr summary for SIP")
+```
+
+```{r missingness-plot}
+ggplot(missingness_by_type, aes(x = reorder(feature, missing_rate), y = missing_rate, fill = type)) +
+  geom_col(position = "dodge") +
+  coord_flip() +
+  facet_wrap(~ feature_role, scales = "free_y") +
+  scale_y_continuous(labels = percent) +
+  labs(
+    title = "Feature Missingness By Product Type",
+    x = NULL,
+    y = "Missing row share"
+  ) +
+  theme_minimal(base_size = 11) +
+  theme(legend.position = "top")
+```
+
+# Product And Store Coverage
+
+```{r product-store-coverage}
+product_coverage <- analysis[
+  ,
+  .(
+    store_rows = .N,
+    stores = uniqueN(store_id),
+    soldqty_sum = sum(soldqty, na.rm = TRUE),
+    drawqty_sum = sum(drawqty, na.rm = TRUE),
+    aggregate_sellthrough = sum(soldqty, na.rm = TRUE) / sum(drawqty, na.rm = TRUE),
+    title = first(title),
+    barcode = first(barcode),
+    segment = first(segment),
+    subsegment = first(subsegment),
+    frequency = first(frequency),
+    onsaledate = first(onsaledate),
+    offsaledate = first(offsaledate),
+    price = first(price)
+  ),
+  by = .(type, product_id)
+][order(type, -store_rows)]
+
+store_coverage <- analysis[
+  ,
+  .(
+    fact_rows = .N,
+    products = uniqueN(product_id),
+    titles = uniqueN(title, na.rm = TRUE),
+    soldqty_sum = sum(soldqty, na.rm = TRUE),
+    drawqty_sum = sum(drawqty, na.rm = TRUE),
+    aggregate_sellthrough = sum(soldqty, na.rm = TRUE) / sum(drawqty, na.rm = TRUE),
+    store_chain = first(store_chain),
+    region = first(region),
+    classoftrade = first(classoftrade),
+    merchandised = first(merchandised),
+    facings = first(facings),
+    pockets = first(pockets),
+    postal_code = first(postal_code)
+  ),
+  by = .(type, store_id)
+][order(type, -fact_rows)]
+
+write_output(product_coverage, "product_coverage")
+write_output(store_coverage, "store_coverage")
+
+display_table(product_coverage, "Product-level coverage and outcomes")
+display_table(store_coverage, "Store-level coverage and outcomes")
+```
+
+# Outputs
+
+```{r output-manifest}
+output_manifest <- data.table(
+  output_dir = output_dir,
+  file = basename(list.files(output_dir, full.names = FALSE)),
+  path = list.files(output_dir, full.names = TRUE)
+)
+
+display_table(output_manifest, "CSV outputs written by this notebook")
+cat("Output directory:", output_dir, "\n")
+```

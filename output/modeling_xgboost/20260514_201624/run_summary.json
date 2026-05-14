@@ -1,0 +1,54 @@
+{
+  "db_uri": "postgresql://norbert.jaworski@/paperrush?host=/tmp",
+  "train_sample_pct": 100,
+  "train_ratio": 0.7,
+  "validation_ratio": 0.15,
+  "test_ratio": 0.15,
+  "train_start": "2023-01-02",
+  "train_end": "2024-01-15",
+  "validation_start": "2024-01-22",
+  "validation_end": "2024-04-08",
+  "test_start": "2024-04-15",
+  "test_end": "2024-06-24",
+  "train_rows": 3196477,
+  "valid_rows": 738164,
+  "test_rows": 631542,
+  "family_runs": {
+    "Weeklies": {
+      "train_rows": 1368926,
+      "valid_rows": 343407,
+      "test_rows": 348239,
+      "test_metrics": {
+        "metric_scale": "raw_copy_counts",
+        "source_dataset": "test",
+        "mae": 1.6706392765045166,
+        "rmse": 2.8087673425414907,
+        "wape": 0.4947632849216461
+      }
+    },
+    "SIP": {
+      "train_rows": 1827551,
+      "valid_rows": 394757,
+      "test_rows": 283303,
+      "test_metrics": {
+        "metric_scale": "raw_copy_counts",
+        "source_dataset": "test",
+        "mae": 0.9875019788742065,
+        "rmse": 1.4166673304986332,
+        "wape": 0.48821747303009033
+      }
+    }
+  },
+  "training_diagnostics": {
+    "Weeklies": {
+      "best_iteration": 45,
+      "early_stopping_metric": "rmse_on_log1p_target",
+      "early_stopping_best_score": 0.4298525274345626
+    },
+    "SIP": {
+      "best_iteration": 77,
+      "early_stopping_metric": "rmse_on_log1p_target",
+      "early_stopping_best_score": 0.37177365552462766
+    }
+  }
+}

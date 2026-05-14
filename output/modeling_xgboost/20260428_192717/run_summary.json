@@ -1,0 +1,33 @@
+{
+  "db_uri": "postgresql://norbert.jaworski@/paperrush?host=/tmp",
+  "train_sample_pct": 100,
+  "train_ratio": 0.7,
+  "validation_ratio": 0.15,
+  "test_ratio": 0.15,
+  "train_start": "2023-01-02",
+  "train_end": "2024-01-15",
+  "validation_start": "2024-01-22",
+  "validation_end": "2024-04-08",
+  "test_start": "2024-04-15",
+  "test_end": "2024-06-24",
+  "train_rows": 3196477,
+  "valid_rows": 738164,
+  "test_rows": 631542,
+  "family_runs": {
+    "Weeklies": {
+      "best_iteration": 45,
+      "best_score": 0.4298525274345626,
+      "train_rows": 1368926,
+      "valid_rows": 343407,
+      "test_rows": 348239
+    },
+    "SIP": {
+      "best_iteration": 77,
+      "best_score": 0.37177365552462766,
+      "train_rows": 1827551,
+      "valid_rows": 394757,
+      "test_rows": 283303
+    }
+  },
+  "pdf_key_point": "Business case asks for SoldQty prediction by store and title, then a profit-aware draw recommendation; DrawQty is treated here as censoring and profit-exposure context, not as a predictive feature for the real July scoring set."
+}
