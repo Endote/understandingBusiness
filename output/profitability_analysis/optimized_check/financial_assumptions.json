@@ -1,0 +1,13 @@
+{
+  "database_uri": "postgresql://norbert.jaworski@/paperrush?host=/tmp",
+  "generated_at": "2026-05-15T23:11:26",
+  "source": "Kearney - PaperRush Business Case PDF assumptions quoted by user",
+  "retailer_margin_rate_of_cover_price": 0.15,
+  "publisher_revenue_rate_of_cover_price": 0.85,
+  "publisher_revenue_to_production_cost_ratio": 5.0,
+  "production_cost_rate_of_cover_price": 0.16999999999999998,
+  "breakeven_sellthrough": 0.19999999999999998,
+  "accounting_profit_formula": "soldqty * price * 0.85 - drawqty * price * 0.17",
+  "demand_view_profit_formula": "greatest(soldqty, 0) * price * 0.85 - drawqty * price * 0.17",
+  "modeling_target_note": "Use greatest(soldqty, 0) for demand forecasting; keep raw soldqty for accounting cuts because negative rows may be returns or corrections."
+}

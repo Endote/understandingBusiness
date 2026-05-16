@@ -1,0 +1,52 @@
+{
+  "created_at": "2026-05-15T20:40:01",
+  "products": 5287,
+  "embedding_dimensions": 384,
+  "families": {
+    "SIP": 3214,
+    "Weeklies": 2073
+  },
+  "pca_variance_thresholds": [
+    {
+      "slice": "all",
+      "products": 5287,
+      "dim_for_80pct_variance": 83,
+      "dim_for_85pct_variance": 104,
+      "dim_for_90pct_variance": 133,
+      "dim_for_95pct_variance": 181
+    },
+    {
+      "slice": "SIP",
+      "products": 3214,
+      "dim_for_80pct_variance": 71,
+      "dim_for_85pct_variance": 90,
+      "dim_for_90pct_variance": 115,
+      "dim_for_95pct_variance": 159
+    },
+    {
+      "slice": "Weeklies",
+      "products": 2073,
+      "dim_for_80pct_variance": 67,
+      "dim_for_85pct_variance": 83,
+      "dim_for_90pct_variance": 105,
+      "dim_for_95pct_variance": 141
+    }
+  ],
+  "holdout_embedding_coverage": [
+    {
+      "family": "SIP",
+      "schedule_rows": 449437,
+      "embedded_schedule_rows": 448720,
+      "products": 183,
+      "embedded_products": 182
+    },
+    {
+      "family": "Weeklies",
+      "schedule_rows": 312094,
+      "embedded_schedule_rows": 312094,
+      "products": 115,
+      "embedded_products": 115
+    }
+  ],
+  "run_umap": true
+}

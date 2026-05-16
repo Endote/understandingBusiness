@@ -7,6 +7,7 @@ import math
 import os
 import subprocess
 import sys
+from collections import defaultdict
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -36,6 +37,41 @@ CORE_FEATURES_CSV = os.getenv("PR_XGB_CORE_FEATURES_CSV", "").strip()
 SEED = int(os.getenv("PR_XGB_SEED", "42"))
 N_ROUNDS = int(os.getenv("PR_XGB_N_ROUNDS", "500"))
 EARLY_STOPPING = int(os.getenv("PR_XGB_EARLY_STOPPING", "30"))
+CV_FOLDS = int(os.getenv("PR_XGB_CV_FOLDS", "3"))
+CV_VALID_DATES = int(os.getenv("PR_XGB_CV_VALID_DATES", "4"))
+CV_MIN_TRAIN_DATES = int(os.getenv("PR_XGB_CV_MIN_TRAIN_DATES", "12"))
+CV_N_ROUNDS = int(os.getenv("PR_XGB_CV_N_ROUNDS", str(min(N_ROUNDS, 200))))
+SHAP_MAX_ROWS = int(os.getenv("PR_XGB_SHAP_MAX_ROWS", "5000"))
+CALIBRATION_BINS = int(os.getenv("PR_XGB_CALIBRATION_BINS", "10"))
+UNKNOWN_CATEGORY_TOKEN = "__UNKNOWN_CATEGORY__"
+MISSING_CATEGORY_TOKEN = "UNKNOWN"
+FAMILIES = ["Weeklies", "SIP"]
+
+CATEGORICAL_COLS = [
+    "title",
+    "type",
+    "segment",
+    "subsegment",
+    "frequency",
+    "store_chain",
+    "region",
+    "classoftrade",
+]
+
+PASSTHROUGH_COLS = {
+    "split",
+    "store_id",
+    "product_id",
+    "onsaledate",
+    "sales_target",
+    "soldqty_raw",
+    "drawqty",
+    "stockout_proxy_flag",
+    "negative_sales_flag",
+    "zero_sales_flag",
+    "oversupply_units",
+    "sellthrough",
+}
 
 
 def log(message: str) -> None:
@@ -311,11 +347,12 @@ select
     b.classoftrade,
     b.sales_target,
     b.soldqty_raw,
-    b.drawqty,
-    b.stockout_proxy_flag,
-    b.negative_sales_flag,
-    b.oversupply_units,
-    b.sellthrough,
+        b.drawqty,
+        b.stockout_proxy_flag,
+        b.negative_sales_flag,
+        b.zero_sales_flag,
+        b.oversupply_units,
+        b.sellthrough,
     b.merchandised,
     b.facings,
     b.pockets,
@@ -371,6 +408,16 @@ class EncodedMatrices:
 
 
 @dataclass
+class PreprocessingArtifact:
+    categorical_cols: list[str]
+    numeric_cols: list[str]
+    category_levels: dict[str, list[str]]
+    numeric_medians: dict[str, float]
+    unknown_category_token: str
+    missing_category_token: str
+
+
+@dataclass
 class FamilyRunResult:
     family: str
     best_iteration: int
@@ -378,6 +425,8 @@ class FamilyRunResult:
     test_metrics: dict[str, object]
     training_diagnostics: dict[str, object]
     metrics_df: pd.DataFrame
+    rolling_metrics_df: pd.DataFrame
+    rolling_summary_df: pd.DataFrame
     test_predictions: pd.DataFrame
     importance_df: pd.DataFrame
     grouped_importance_df: pd.DataFrame
@@ -397,93 +446,162 @@ def load_existing_dataframe(csv_path: str) -> pd.DataFrame:
     return pd.read_csv(path, parse_dates=["onsaledate"])
 
 
-def prepare_frames(core_df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
-    core_df = core_df.loc[(core_df["sales_target"] > 0) & (core_df["drawqty"] > 0)].copy()
+def normalize_core_dataframe(core_df: pd.DataFrame) -> pd.DataFrame:
+    if "zero_sales_flag" not in core_df.columns:
+        core_df = core_df.copy()
+        core_df["zero_sales_flag"] = (core_df["sales_target"] == 0).astype(np.int8)
+    return core_df
 
-    train_df = core_df.loc[core_df["split"] == "train"].copy()
-    valid_df = core_df.loc[core_df["split"] == "valid"].copy()
-    test_df = core_df.loc[core_df["split"] == "test"].copy()
 
-    categorical_cols = [
-        "title",
-        "type",
-        "segment",
-        "subsegment",
-        "frequency",
-        "store_chain",
-        "region",
-        "classoftrade",
-    ]
-    passthrough_cols = {"split", "store_id", "product_id", "onsaledate", "sales_target", "soldqty_raw", "drawqty", "stockout_proxy_flag", "negative_sales_flag", "oversupply_units", "sellthrough"}
+def split_modeling_frames(core_df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, dict[str, int]]:
+    before_rows = int(len(core_df))
+    modeling_df = core_df.loc[core_df["drawqty"] != 0].copy()
+    dropped_zero_draw = before_rows - int(len(modeling_df))
+    split_counts = {
+        "input_rows": before_rows,
+        "dropped_zero_draw_rows": dropped_zero_draw,
+        "modeling_rows": int(len(modeling_df)),
+        "zero_sales_rows_kept": int((modeling_df["sales_target"] == 0).sum()),
+    }
+    train_df = modeling_df.loc[modeling_df["split"] == "train"].copy()
+    valid_df = modeling_df.loc[modeling_df["split"] == "valid"].copy()
+    test_df = modeling_df.loc[modeling_df["split"] == "test"].copy()
+    return train_df, valid_df, test_df, split_counts
 
-    for frame in (train_df, valid_df, test_df):
-        for col in categorical_cols:
-            frame[col] = frame[col].astype("string").fillna("UNKNOWN").astype(str)
 
-    for col in categorical_cols:
-        levels = sorted(set(train_df[col]).union(valid_df[col]).union(test_df[col]))
-        train_df[col] = pd.Categorical(train_df[col], categories=levels)
-        valid_df[col] = pd.Categorical(valid_df[col], categories=levels)
-        test_df[col] = pd.Categorical(test_df[col], categories=levels)
+def fit_preprocessing(train_df: pd.DataFrame) -> PreprocessingArtifact:
+    category_levels: dict[str, list[str]] = {}
+    prepared_train = train_df.copy()
+    for col in CATEGORICAL_COLS:
+        prepared_train[col] = prepared_train[col].astype("string").fillna(MISSING_CATEGORY_TOKEN).astype(str)
+        levels = sorted(set(prepared_train[col]))
+        if UNKNOWN_CATEGORY_TOKEN not in levels:
+            levels.append(UNKNOWN_CATEGORY_TOKEN)
+        category_levels[col] = levels
 
     numeric_cols = [
         col for col in train_df.columns
-        if col not in passthrough_cols and col not in categorical_cols
+        if col not in PASSTHROUGH_COLS and col not in CATEGORICAL_COLS
     ]
-
+    numeric_medians = {}
     for col in numeric_cols:
-        median_value = float(train_df[col].median()) if not pd.isna(train_df[col].median()) else 0.0
-        train_df[col] = train_df[col].fillna(median_value)
-        valid_df[col] = valid_df[col].fillna(median_value)
-        test_df[col] = test_df[col].fillna(median_value)
+        median_value = train_df[col].median()
+        numeric_medians[col] = float(median_value) if not pd.isna(median_value) else 0.0
 
-    return train_df, valid_df, test_df
-
-
-def encode_features(train_df: pd.DataFrame, valid_df: pd.DataFrame, test_df: pd.DataFrame) -> EncodedMatrices:
-    categorical_cols = [
-        "title",
-        "type",
-        "segment",
-        "subsegment",
-        "frequency",
-        "store_chain",
-        "region",
-        "classoftrade",
-    ]
-    exclude_cols = {
-        "split",
-        "store_id",
-        "product_id",
-        "onsaledate",
-        "sales_target",
-        "soldqty_raw",
-        "drawqty",
-        "stockout_proxy_flag",
-        "negative_sales_flag",
-        "oversupply_units",
-        "sellthrough",
-    }
-    numeric_cols = [col for col in train_df.columns if col not in exclude_cols and col not in categorical_cols]
-
-    train_num = sparse.csr_matrix(train_df[numeric_cols].to_numpy(dtype=np.float32))
-    valid_num = sparse.csr_matrix(valid_df[numeric_cols].to_numpy(dtype=np.float32))
-    test_num = sparse.csr_matrix(test_df[numeric_cols].to_numpy(dtype=np.float32))
-
-    combined = pd.concat(
-        [
-            train_df[categorical_cols],
-            valid_df[categorical_cols],
-            test_df[categorical_cols],
-        ],
-        axis=0,
+    return PreprocessingArtifact(
+        categorical_cols=list(CATEGORICAL_COLS),
+        numeric_cols=numeric_cols,
+        category_levels=category_levels,
+        numeric_medians=numeric_medians,
+        unknown_category_token=UNKNOWN_CATEGORY_TOKEN,
+        missing_category_token=MISSING_CATEGORY_TOKEN,
     )
-    combined_dummies = pd.get_dummies(combined, columns=categorical_cols, sparse=True, dtype=np.float32)
-    train_cat = sparse.csr_matrix(combined_dummies.iloc[: len(train_df)].sparse.to_coo())
-    valid_cat = sparse.csr_matrix(combined_dummies.iloc[len(train_df): len(train_df) + len(valid_df)].sparse.to_coo())
-    test_cat = sparse.csr_matrix(combined_dummies.iloc[len(train_df) + len(valid_df):].sparse.to_coo())
 
-    feature_names = numeric_cols + list(combined_dummies.columns)
+
+def apply_preprocessing(frame: pd.DataFrame, artifact: PreprocessingArtifact) -> tuple[pd.DataFrame, dict[str, object]]:
+    prepared = frame.copy()
+    unknown_counts: dict[str, int] = {}
+    for col in artifact.categorical_cols:
+        levels = artifact.category_levels[col]
+        values = prepared[col].astype("string").fillna(artifact.missing_category_token).astype(str)
+        known_mask = values.isin(levels)
+        unknown_counts[col] = int((~known_mask).sum())
+        values = values.where(known_mask, artifact.unknown_category_token)
+        prepared[col] = pd.Categorical(values, categories=levels)
+
+    for col in artifact.numeric_cols:
+        prepared[col] = prepared[col].fillna(artifact.numeric_medians[col])
+
+    diagnostics = {
+        "rows": int(len(prepared)),
+        "unknown_category_counts": unknown_counts,
+        "unknown_category_rates": {
+            col: (count / len(prepared) if len(prepared) else 0.0)
+            for col, count in unknown_counts.items()
+        },
+    }
+    return prepared, diagnostics
+
+
+def write_preprocessing_artifact(
+    family: str,
+    artifact: PreprocessingArtifact,
+    diagnostics: dict[str, object],
+) -> None:
+    payload = {
+        "family": family,
+        "fit_scope": "training_split_only",
+        "unknown_category_handling": "Values absent from the training split are mapped to __UNKNOWN_CATEGORY__.",
+        "categorical_cols": artifact.categorical_cols,
+        "numeric_cols": artifact.numeric_cols,
+        "category_levels": artifact.category_levels,
+        "numeric_medians": artifact.numeric_medians,
+        "diagnostics": diagnostics,
+    }
+    path = OUTPUT_DIR / f"preprocessing_{family.lower()}.json"
+    path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+
+
+def prepare_family_frames(
+    family: str,
+    train_df: pd.DataFrame,
+    valid_df: pd.DataFrame,
+    test_df: pd.DataFrame,
+    persist: bool = True,
+) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, PreprocessingArtifact, dict[str, object]]:
+    artifact = fit_preprocessing(train_df)
+    prepared_train, train_diag = apply_preprocessing(train_df, artifact)
+    prepared_valid, valid_diag = apply_preprocessing(valid_df, artifact)
+    prepared_test, test_diag = apply_preprocessing(test_df, artifact)
+    diagnostics = {
+        "train": train_diag,
+        "validation": valid_diag,
+        "test": test_diag,
+    }
+    if persist:
+        write_preprocessing_artifact(family, artifact, diagnostics)
+    return prepared_train, prepared_valid, prepared_test, artifact, diagnostics
+
+
+def encode_categorical_frame(frame: pd.DataFrame, artifact: PreprocessingArtifact) -> sparse.csr_matrix:
+    dummies = pd.get_dummies(
+        frame[artifact.categorical_cols],
+        columns=artifact.categorical_cols,
+        sparse=True,
+        dtype=np.float32,
+    )
+    expected_cols = [
+        f"{col}_{level}"
+        for col in artifact.categorical_cols
+        for level in artifact.category_levels[col]
+    ]
+    missing_cols = [col for col in expected_cols if col not in dummies.columns]
+    for col in missing_cols:
+        dummies[col] = pd.arrays.SparseArray(np.zeros(len(frame), dtype=np.float32), fill_value=0.0)
+    dummies = dummies[expected_cols]
+    return sparse.csr_matrix(dummies.sparse.to_coo())
+
+
+def encode_features(
+    train_df: pd.DataFrame,
+    valid_df: pd.DataFrame,
+    test_df: pd.DataFrame,
+    artifact: PreprocessingArtifact,
+) -> EncodedMatrices:
+    train_num = sparse.csr_matrix(train_df[artifact.numeric_cols].to_numpy(dtype=np.float32))
+    valid_num = sparse.csr_matrix(valid_df[artifact.numeric_cols].to_numpy(dtype=np.float32))
+    test_num = sparse.csr_matrix(test_df[artifact.numeric_cols].to_numpy(dtype=np.float32))
+
+    train_cat = encode_categorical_frame(train_df, artifact)
+    valid_cat = encode_categorical_frame(valid_df, artifact)
+    test_cat = encode_categorical_frame(test_df, artifact)
+
+    categorical_feature_names = [
+        f"{col}_{level}"
+        for col in artifact.categorical_cols
+        for level in artifact.category_levels[col]
+    ]
+    feature_names = artifact.numeric_cols + categorical_feature_names
     return EncodedMatrices(
         train_matrix=sparse.hstack([train_num, train_cat], format="csr"),
         valid_matrix=sparse.hstack([valid_num, valid_cat], format="csr"),
@@ -496,7 +614,7 @@ def build_sample_weights(frame: pd.DataFrame) -> np.ndarray:
     # DrawQty affects observed sales through stockouts and over-allocation.
     # We keep SoldQty-based target, but reduce weight on likely censored stockout rows
     # and slightly upweight high-draw observations because they carry more profit exposure.
-    draw_component = np.clip(np.log1p(frame["drawqty"].fillna(0).to_numpy(dtype=np.float32)), 0.0, 3.5)
+    draw_component = np.clip(np.log1p(np.clip(frame["drawqty"].fillna(0).to_numpy(dtype=np.float32), 0.0, None)), 0.0, 3.5)
     stockout_penalty = np.where(frame["stockout_proxy_flag"].to_numpy(dtype=np.int8) == 1, 0.75, 1.0)
     negative_penalty = np.where(frame["negative_sales_flag"].to_numpy(dtype=np.int8) == 1, 0.60, 1.0)
     return (1.0 + 0.20 * draw_component) * stockout_penalty * negative_penalty
@@ -513,6 +631,8 @@ def build_metrics(frame: pd.DataFrame, prediction_col: str, dataset_name: str) -
     records: list[dict[str, object]] = []
     slices = {
         "all": np.ones(len(frame), dtype=bool),
+        "zero_sales": frame["sales_target"].eq(0).to_numpy(),
+        "positive_sales": frame["sales_target"].gt(0).to_numpy(),
         "stockout_proxy": frame["stockout_proxy_flag"].eq(1).to_numpy(),
         "non_stockout": frame["stockout_proxy_flag"].eq(0).to_numpy(),
     }
@@ -532,6 +652,66 @@ def build_metrics(frame: pd.DataFrame, prediction_col: str, dataset_name: str) -
             }
         )
     return pd.DataFrame.from_records(records)
+
+
+def build_xgb_params() -> dict[str, object]:
+    return {
+        "objective": "reg:squarederror",
+        "eval_metric": "rmse",
+        "eta": 0.05,
+        "max_depth": 8,
+        "min_child_weight": 20,
+        "subsample": 0.8,
+        "colsample_bytree": 0.8,
+        "tree_method": "hist",
+        "seed": SEED,
+        "nthread": max(os.cpu_count() - 1, 1),
+    }
+
+
+def train_booster(
+    family: str,
+    train_df: pd.DataFrame,
+    valid_df: pd.DataFrame,
+    matrices: EncodedMatrices,
+    num_boost_round: int,
+    early_stopping_rounds: int,
+    log_label: str,
+) -> tuple[xgb.Booster, xgb.DMatrix, xgb.DMatrix]:
+    train_labels = np.log1p(train_df["sales_target"].to_numpy(dtype=np.float32))
+    valid_labels = np.log1p(valid_df["sales_target"].to_numpy(dtype=np.float32))
+
+    dtrain = xgb.DMatrix(
+        matrices.train_matrix,
+        label=train_labels,
+        weight=build_sample_weights(train_df),
+        feature_names=matrices.feature_names,
+    )
+    dvalid = xgb.DMatrix(
+        matrices.valid_matrix,
+        label=valid_labels,
+        weight=build_sample_weights(valid_df),
+        feature_names=matrices.feature_names,
+    )
+
+    log(f"Training XGBoost model for {family} ({log_label})")
+    booster = xgb.train(
+        params=build_xgb_params(),
+        dtrain=dtrain,
+        num_boost_round=num_boost_round,
+        evals=[(dtrain, f"{family.lower()}_{log_label}_train"), (dvalid, f"{family.lower()}_{log_label}_valid")],
+        early_stopping_rounds=early_stopping_rounds,
+        verbose_eval=25,
+    )
+    return booster, dtrain, dvalid
+
+
+def predict_raw_units(booster: xgb.Booster, matrix: xgb.DMatrix) -> np.ndarray:
+    return np.clip(
+        np.expm1(booster.predict(matrix, iteration_range=(0, booster.best_iteration + 1))),
+        0.0,
+        None,
+    )
 
 
 def compute_baseline(frame: pd.DataFrame) -> np.ndarray:
@@ -619,6 +799,273 @@ def feature_group(feature_name: str) -> str:
     return "categoricals"
 
 
+def metric_record(frame: pd.DataFrame, prediction_col: str, dataset_name: str, slice_name: str) -> dict[str, object]:
+    y_true = frame["sales_target"].to_numpy(dtype=np.float32)
+    y_pred = frame[prediction_col].to_numpy(dtype=np.float32)
+    residual = y_pred - y_true
+    return {
+        "dataset": dataset_name,
+        "slice": slice_name,
+        "rows": int(len(frame)),
+        "actual_mean": float(np.mean(y_true)) if len(frame) else math.nan,
+        "prediction_mean": float(np.mean(y_pred)) if len(frame) else math.nan,
+        "bias_mean_pred_minus_actual": float(np.mean(residual)) if len(frame) else math.nan,
+        "mae": float(mean_absolute_error(y_true, y_pred)) if len(frame) else math.nan,
+        "rmse": float(np.sqrt(mean_squared_error(y_true, y_pred))) if len(frame) else math.nan,
+        "wape": safe_wape(y_true, y_pred) if len(frame) else math.nan,
+        "zero_sales_rate": float((frame["sales_target"] == 0).mean()) if len(frame) else math.nan,
+        "stockout_proxy_rate": float(frame["stockout_proxy_flag"].mean()) if len(frame) else math.nan,
+    }
+
+
+def build_named_slice_diagnostics(frame: pd.DataFrame, prediction_col: str, dataset_name: str) -> pd.DataFrame:
+    slice_masks = {
+        "all": np.ones(len(frame), dtype=bool),
+        "zero_sales": frame["sales_target"].eq(0).to_numpy(),
+        "positive_sales": frame["sales_target"].gt(0).to_numpy(),
+        "stockout_proxy": frame["stockout_proxy_flag"].eq(1).to_numpy(),
+        "non_stockout": frame["stockout_proxy_flag"].eq(0).to_numpy(),
+        "cold_store": frame["store_prior_obs"].eq(0).to_numpy(),
+        "sparse_store_lt_5": frame["store_prior_obs"].lt(5).to_numpy(),
+        "cold_store_title": frame["store_title_prior_obs"].eq(0).to_numpy(),
+        "cold_store_segment": frame["store_segment_prior_obs"].eq(0).to_numpy(),
+        "cold_title": frame["title_prior_obs"].eq(0).to_numpy(),
+    }
+    records = [
+        metric_record(frame.loc[mask], prediction_col, dataset_name, slice_name)
+        for slice_name, mask in slice_masks.items()
+        if int(mask.sum()) > 0
+    ]
+    return pd.DataFrame.from_records(records)
+
+
+def build_grouped_residual_diagnostics(
+    frame: pd.DataFrame,
+    prediction_col: str,
+    dataset_name: str,
+    group_cols: list[str],
+) -> pd.DataFrame:
+    records: list[dict[str, object]] = []
+    for group_col in group_cols:
+        for group_value, group_df in frame.groupby(group_col, dropna=False, observed=True):
+            if len(group_df) < 25:
+                continue
+            row = metric_record(group_df, prediction_col, dataset_name, f"{group_col}={group_value}")
+            row["group_col"] = group_col
+            row["group_value"] = str(group_value)
+            records.append(row)
+    return pd.DataFrame.from_records(records)
+
+
+def build_calibration_table(
+    frame: pd.DataFrame,
+    prediction_col: str,
+    dataset_name: str,
+    bins: int = CALIBRATION_BINS,
+) -> pd.DataFrame:
+    work = frame[["sales_target", prediction_col]].copy()
+    work["prediction_bin"] = pd.qcut(
+        work[prediction_col].rank(method="first"),
+        q=min(bins, len(work)),
+        labels=False,
+        duplicates="drop",
+    )
+    records = []
+    for bin_id, bin_df in work.groupby("prediction_bin", dropna=False):
+        y_true = bin_df["sales_target"].to_numpy(dtype=np.float32)
+        y_pred = bin_df[prediction_col].to_numpy(dtype=np.float32)
+        records.append(
+            {
+                "dataset": dataset_name,
+                "prediction_bin": int(bin_id) if not pd.isna(bin_id) else -1,
+                "rows": int(len(bin_df)),
+                "actual_mean": float(np.mean(y_true)),
+                "prediction_mean": float(np.mean(y_pred)),
+                "bias_mean_pred_minus_actual": float(np.mean(y_pred - y_true)),
+                "actual_zero_rate": float((bin_df["sales_target"] == 0).mean()),
+                "mae": float(mean_absolute_error(y_true, y_pred)),
+                "wape": safe_wape(y_true, y_pred),
+            }
+        )
+    return pd.DataFrame.from_records(records)
+
+
+def write_explainability_outputs(
+    family: str,
+    booster: xgb.Booster,
+    matrices: EncodedMatrices,
+    valid_df: pd.DataFrame,
+    test_df: pd.DataFrame,
+) -> None:
+    shap_frames = []
+    for dataset_name, frame, matrix in [
+        ("validation", valid_df, matrices.valid_matrix),
+        ("test", test_df, matrices.test_matrix),
+    ]:
+        if SHAP_MAX_ROWS <= 0 or len(frame) == 0:
+            continue
+        sample_size = min(SHAP_MAX_ROWS, len(frame))
+        sample_positions = np.sort(
+            np.random.default_rng(SEED).choice(len(frame), size=sample_size, replace=False)
+        )
+        sample_df = frame.iloc[sample_positions].reset_index(drop=True)
+        sample_matrix = matrix[sample_positions]
+        dmatrix = xgb.DMatrix(sample_matrix, feature_names=matrices.feature_names)
+        shap_values = booster.predict(
+            dmatrix,
+            pred_contribs=True,
+            iteration_range=(0, booster.best_iteration + 1),
+        )
+        feature_shap = shap_values[:, :-1]
+        abs_feature_shap = np.abs(feature_shap)
+        feature_importance = pd.DataFrame(
+            {
+                "family": family,
+                "dataset": dataset_name,
+                "feature": matrices.feature_names,
+                "feature_group": [feature_group(name) for name in matrices.feature_names],
+                "mean_abs_shap": abs_feature_shap.mean(axis=0),
+            }
+        ).sort_values("mean_abs_shap", ascending=False)
+        shap_frames.append(feature_importance)
+
+        group_indices: dict[str, list[int]] = defaultdict(list)
+        for idx, feature_name in enumerate(matrices.feature_names):
+            group_indices[feature_group(feature_name)].append(idx)
+
+        segment_records = []
+        group_values = pd.DataFrame(
+            {
+                group_name: abs_feature_shap[:, indices].sum(axis=1)
+                for group_name, indices in group_indices.items()
+            }
+        )
+        group_values["onsaledate"] = sample_df["onsaledate"].dt.strftime("%Y-%m-%d")
+        group_values["segment"] = sample_df["segment"].astype(str)
+        group_values["dataset"] = dataset_name
+        for (onsaledate, segment), group_df in group_values.groupby(["onsaledate", "segment"], observed=True):
+            if len(group_df) < 10:
+                continue
+            for group_name in group_indices:
+                segment_records.append(
+                    {
+                        "family": family,
+                        "dataset": dataset_name,
+                        "onsaledate": onsaledate,
+                        "segment": segment,
+                        "feature_group": group_name,
+                        "rows": int(len(group_df)),
+                        "mean_abs_shap": float(group_df[group_name].mean()),
+                    }
+                )
+        pd.DataFrame.from_records(segment_records).to_csv(
+            OUTPUT_DIR / f"shap_feature_group_by_date_segment_{family.lower()}_{dataset_name}.csv",
+            index=False,
+        )
+
+    if shap_frames:
+        pd.concat(shap_frames, ignore_index=True).to_csv(
+            OUTPUT_DIR / f"shap_feature_importance_{family.lower()}.csv",
+            index=False,
+        )
+
+
+def build_expanding_folds(family_df: pd.DataFrame) -> list[dict[str, object]]:
+    if CV_FOLDS <= 0:
+        return []
+    cv_df = family_df.loc[family_df["split"].isin(["train", "valid"])].copy()
+    dates = sorted(cv_df["onsaledate"].dt.strftime("%Y-%m-%d").unique())
+    if len(dates) < CV_MIN_TRAIN_DATES + 1:
+        return []
+    valid_window = max(1, min(CV_VALID_DATES, max(1, len(dates) - CV_MIN_TRAIN_DATES)))
+    latest_valid_start = len(dates) - valid_window
+    if latest_valid_start < CV_MIN_TRAIN_DATES:
+        return []
+    start_candidates = np.linspace(CV_MIN_TRAIN_DATES, latest_valid_start, num=min(CV_FOLDS, latest_valid_start - CV_MIN_TRAIN_DATES + 1))
+    start_indices = sorted({int(round(value)) for value in start_candidates})
+    folds = []
+    for fold_idx, valid_start_idx in enumerate(start_indices, start=1):
+        train_dates = dates[:valid_start_idx]
+        valid_dates = dates[valid_start_idx:valid_start_idx + valid_window]
+        folds.append(
+            {
+                "fold": fold_idx,
+                "train_start": train_dates[0],
+                "train_end": train_dates[-1],
+                "validation_start": valid_dates[0],
+                "validation_end": valid_dates[-1],
+                "train_dates": train_dates,
+                "valid_dates": valid_dates,
+            }
+        )
+    return folds
+
+
+def run_rolling_validation(family: str, family_df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
+    folds = build_expanding_folds(family_df)
+    if not folds:
+        return pd.DataFrame(), pd.DataFrame()
+
+    all_metrics = []
+    for fold in folds:
+        train_mask = family_df["onsaledate"].dt.strftime("%Y-%m-%d").isin(fold["train_dates"])
+        valid_mask = family_df["onsaledate"].dt.strftime("%Y-%m-%d").isin(fold["valid_dates"])
+        fold_train = family_df.loc[train_mask].copy()
+        fold_valid = family_df.loc[valid_mask].copy()
+        if fold_train.empty or fold_valid.empty:
+            continue
+        empty_test = fold_valid.iloc[0:0].copy()
+        fold_train, fold_valid, _, artifact, _ = prepare_family_frames(
+            family,
+            fold_train,
+            fold_valid,
+            empty_test,
+            persist=False,
+        )
+        matrices = encode_features(fold_train, fold_valid, empty_test, artifact)
+        booster, _, dvalid = train_booster(
+            family,
+            fold_train,
+            fold_valid,
+            matrices,
+            num_boost_round=CV_N_ROUNDS,
+            early_stopping_rounds=EARLY_STOPPING,
+            log_label=f"rolling_fold_{fold['fold']}",
+        )
+        fold_valid["baseline_pred"] = compute_baseline(fold_valid)
+        fold_valid["xgb_pred"] = predict_raw_units(booster, dvalid)
+        baseline_metrics = build_metrics(fold_valid, "baseline_pred", "rolling_validation")
+        baseline_metrics.insert(0, "model", "historical_fallback")
+        xgb_metrics = build_metrics(fold_valid, "xgb_pred", "rolling_validation")
+        xgb_metrics.insert(0, "model", "xgboost")
+        fold_metrics = pd.concat([baseline_metrics, xgb_metrics], ignore_index=True)
+        fold_metrics.insert(0, "family", family)
+        for key, value in fold.items():
+            if key not in {"train_dates", "valid_dates"}:
+                fold_metrics[key] = value
+        fold_metrics["best_iteration"] = int(booster.best_iteration)
+        fold_metrics["early_stopping_best_score"] = float(booster.best_score)
+        all_metrics.append(fold_metrics)
+
+    if not all_metrics:
+        return pd.DataFrame(), pd.DataFrame()
+
+    metrics_df = pd.concat(all_metrics, ignore_index=True)
+    summary_df = (
+        metrics_df.groupby(["family", "model", "slice"], as_index=False)
+        .agg(
+            folds=("fold", "nunique"),
+            mean_mae=("mae", "mean"),
+            std_mae=("mae", "std"),
+            mean_rmse=("rmse", "mean"),
+            std_rmse=("rmse", "std"),
+            mean_wape=("wape", "mean"),
+            std_wape=("wape", "std"),
+        )
+    )
+    return metrics_df, summary_df
+
+
 def train_family_model(
     family: str,
     train_df: pd.DataFrame,
@@ -632,58 +1079,37 @@ def train_family_model(
     if family_train_df.empty or family_valid_df.empty or family_test_df.empty:
         raise ValueError(f"Family {family} does not have non-empty train/validation/test splits")
 
-    family_train_df, family_valid_df, family_test_df = prepare_frames(
-        pd.concat([family_train_df, family_valid_df, family_test_df], ignore_index=True)
-    )
-    matrices = encode_features(family_train_df, family_valid_df, family_test_df)
+    family_all_df = pd.concat([family_train_df, family_valid_df, family_test_df], ignore_index=True)
+    rolling_metrics_df, rolling_summary_df = run_rolling_validation(family, family_all_df)
 
-    train_labels = np.log1p(family_train_df["sales_target"].to_numpy(dtype=np.float32))
-    valid_labels = np.log1p(family_valid_df["sales_target"].to_numpy(dtype=np.float32))
+    family_train_df, family_valid_df, family_test_df, artifact, preprocessing_diagnostics = prepare_family_frames(
+        family,
+        family_train_df,
+        family_valid_df,
+        family_test_df,
+        persist=True,
+    )
+    matrices = encode_features(family_train_df, family_valid_df, family_test_df, artifact)
+
     test_labels = np.log1p(family_test_df["sales_target"].to_numpy(dtype=np.float32))
 
-    train_weights = build_sample_weights(family_train_df)
-    valid_weights = build_sample_weights(family_valid_df)
     test_weights = build_sample_weights(family_test_df)
 
-    dtrain = xgb.DMatrix(matrices.train_matrix, label=train_labels, weight=train_weights, feature_names=matrices.feature_names)
-    dvalid = xgb.DMatrix(matrices.valid_matrix, label=valid_labels, weight=valid_weights, feature_names=matrices.feature_names)
-    dtest = xgb.DMatrix(matrices.test_matrix, label=test_labels, weight=test_weights, feature_names=matrices.feature_names)
-
-    params = {
-        "objective": "reg:squarederror",
-        "eval_metric": "rmse",
-        "eta": 0.05,
-        "max_depth": 8,
-        "min_child_weight": 20,
-        "subsample": 0.8,
-        "colsample_bytree": 0.8,
-        "tree_method": "hist",
-        "seed": SEED,
-        "nthread": max(os.cpu_count() - 1, 1),
-    }
-
-    log(f"Training XGBoost model for {family}")
-    booster = xgb.train(
-        params=params,
-        dtrain=dtrain,
+    booster, dtrain, dvalid = train_booster(
+        family,
+        family_train_df,
+        family_valid_df,
+        matrices,
         num_boost_round=N_ROUNDS,
-        evals=[(dtrain, f"{family.lower()}_train"), (dvalid, f"{family.lower()}_valid")],
         early_stopping_rounds=EARLY_STOPPING,
-        verbose_eval=25,
+        log_label="final",
     )
+    dtest = xgb.DMatrix(matrices.test_matrix, label=test_labels, weight=test_weights, feature_names=matrices.feature_names)
 
     family_valid_df["baseline_pred"] = compute_baseline(family_valid_df)
     family_test_df["baseline_pred"] = compute_baseline(family_test_df)
-    family_valid_df["xgb_pred"] = np.clip(
-        np.expm1(booster.predict(dvalid, iteration_range=(0, booster.best_iteration + 1))),
-        0.0,
-        None,
-    )
-    family_test_df["xgb_pred"] = np.clip(
-        np.expm1(booster.predict(dtest, iteration_range=(0, booster.best_iteration + 1))),
-        0.0,
-        None,
-    )
+    family_valid_df["xgb_pred"] = predict_raw_units(booster, dvalid)
+    family_test_df["xgb_pred"] = predict_raw_units(booster, dtest)
 
     xgb_metrics = pd.concat(
         [
@@ -745,6 +1171,40 @@ def train_family_model(
     importance_df.to_csv(OUTPUT_DIR / f"feature_importance_gain_{family.lower()}.csv", index=False)
     grouped_importance_df.to_csv(OUTPUT_DIR / f"feature_group_importance_gain_{family.lower()}.csv", index=False)
 
+    diagnostics_df = pd.concat(
+        [
+            build_named_slice_diagnostics(family_valid_df, "xgb_pred", "validation"),
+            build_named_slice_diagnostics(family_test_df, "xgb_pred", "test"),
+            build_grouped_residual_diagnostics(
+                family_valid_df,
+                "xgb_pred",
+                "validation",
+                ["onsaledate", "segment", "subsegment", "store_chain", "classoftrade"],
+            ),
+            build_grouped_residual_diagnostics(
+                family_test_df,
+                "xgb_pred",
+                "test",
+                ["onsaledate", "segment", "subsegment", "store_chain", "classoftrade"],
+            ),
+        ],
+        ignore_index=True,
+    )
+    diagnostics_df.insert(0, "family", family)
+    diagnostics_df.to_csv(OUTPUT_DIR / f"residual_diagnostics_{family.lower()}.csv", index=False)
+
+    calibration_df = pd.concat(
+        [
+            build_calibration_table(family_valid_df, "xgb_pred", "validation"),
+            build_calibration_table(family_test_df, "xgb_pred", "test"),
+        ],
+        ignore_index=True,
+    )
+    calibration_df.insert(0, "family", family)
+    calibration_df.to_csv(OUTPUT_DIR / f"calibration_{family.lower()}.csv", index=False)
+
+    write_explainability_outputs(family, booster, matrices, family_valid_df, family_test_df)
+
     test_metrics = {
         "metric_scale": "raw_copy_counts",
         "source_dataset": "test",
@@ -756,6 +1216,11 @@ def train_family_model(
         "best_iteration": int(booster.best_iteration),
         "early_stopping_metric": "rmse_on_log1p_target",
         "early_stopping_best_score": float(booster.best_score),
+        "preprocessing_fit_scope": "training_split_only",
+        "preprocessing_unknown_category_rates": {
+            dataset_name: diagnostics["unknown_category_rates"]
+            for dataset_name, diagnostics in preprocessing_diagnostics.items()
+        },
     }
 
     return FamilyRunResult(
@@ -768,6 +1233,11 @@ def train_family_model(
             early_stopping_metric="rmse_on_log1p_target",
             prediction_metric_scale="raw_copy_counts",
         ),
+        rolling_metrics_df=rolling_metrics_df.assign(
+            early_stopping_metric="rmse_on_log1p_target",
+            prediction_metric_scale="raw_copy_counts",
+        ) if not rolling_metrics_df.empty else rolling_metrics_df,
+        rolling_summary_df=rolling_summary_df,
         test_predictions=test_predictions,
         importance_df=importance_df,
         grouped_importance_df=grouped_importance_df,
@@ -776,10 +1246,10 @@ def train_family_model(
 
 def main() -> int:
     if CORE_FEATURES_CSV:
-        core_df = load_existing_dataframe(CORE_FEATURES_CSV)
+        core_df = normalize_core_dataframe(load_existing_dataframe(CORE_FEATURES_CSV))
         split_info = summarize_existing_split(core_df)
     elif DEFAULT_CORE_FEATURES_CACHE.exists():
-        core_df = load_existing_dataframe(str(DEFAULT_CORE_FEATURES_CACHE))
+        core_df = normalize_core_dataframe(load_existing_dataframe(str(DEFAULT_CORE_FEATURES_CACHE)))
         split_info = summarize_existing_split(core_df)
     else:
         split_info = compute_split_dates(TRAIN_SPLIT_RATIO, VALID_SPLIT_RATIO, TEST_SPLIT_RATIO)
@@ -788,7 +1258,7 @@ def main() -> int:
             test_start=split_info["test_start"],
             train_sample_pct=TRAIN_SAMPLE_PCT,
         )
-        core_df = export_query_to_dataframe(core_query, "core_features", DEFAULT_CORE_FEATURES_CACHE)
+        core_df = normalize_core_dataframe(export_query_to_dataframe(core_query, "core_features", DEFAULT_CORE_FEATURES_CACHE))
 
     log(
         "Using chronological split: "
@@ -800,13 +1270,25 @@ def main() -> int:
         f"({split_info['test_dates']} dates)"
     )
 
-    train_df, valid_df, test_df = prepare_frames(core_df)
+    train_df, valid_df, test_df, modeling_filter_counts = split_modeling_frames(core_df)
     family_results = []
-    for family in ["Weeklies", "SIP"]:
+    for family in FAMILIES:
         family_results.append(train_family_model(family, train_df, valid_df, test_df))
 
     metrics_df = pd.concat([result.metrics_df for result in family_results], ignore_index=True)
     metrics_df.to_csv(OUTPUT_DIR / "validation_metrics.csv", index=False)
+
+    rolling_metrics = [result.rolling_metrics_df for result in family_results if not result.rolling_metrics_df.empty]
+    if rolling_metrics:
+        rolling_metrics_df = pd.concat(rolling_metrics, ignore_index=True)
+        rolling_metrics_df.to_csv(OUTPUT_DIR / "rolling_validation_metrics.csv", index=False)
+
+    rolling_summaries = [result.rolling_summary_df for result in family_results if not result.rolling_summary_df.empty]
+    if rolling_summaries:
+        rolling_summary_df = pd.concat(rolling_summaries, ignore_index=True)
+        rolling_summary_df.to_csv(OUTPUT_DIR / "rolling_validation_summary.csv", index=False)
+    else:
+        rolling_summary_df = pd.DataFrame()
 
     test_output = pd.concat([result.test_predictions for result in family_results], ignore_index=True)
     test_output.to_csv(OUTPUT_DIR / "test_predictions.csv", index=False)
@@ -817,12 +1299,18 @@ def main() -> int:
         "train_ratio": TRAIN_SPLIT_RATIO,
         "validation_ratio": VALID_SPLIT_RATIO,
         "test_ratio": TEST_SPLIT_RATIO,
+        "cv_folds": CV_FOLDS,
+        "cv_valid_dates": CV_VALID_DATES,
+        "cv_min_train_dates": CV_MIN_TRAIN_DATES,
+        "cv_n_rounds": CV_N_ROUNDS,
+        "shap_max_rows": SHAP_MAX_ROWS,
         "train_start": split_info["train_start"],
         "train_end": split_info["train_end"],
         "validation_start": split_info["validation_start"],
         "validation_end": split_info["validation_end"],
         "test_start": split_info["test_start"],
         "test_end": split_info["test_end"],
+        "modeling_filter_counts": modeling_filter_counts,
         "train_rows": int(len(train_df)),
         "valid_rows": int(len(valid_df)),
         "test_rows": int(len(test_df)),
@@ -831,6 +1319,11 @@ def main() -> int:
                 "train_rows": int((train_df["type"] == result.family).sum()),
                 "valid_rows": int((valid_df["type"] == result.family).sum()),
                 "test_rows": int((test_df["type"] == result.family).sum()),
+                "zero_sales_rows_kept": {
+                    "train": int(((train_df["type"] == result.family) & (train_df["sales_target"] == 0)).sum()),
+                    "validation": int(((valid_df["type"] == result.family) & (valid_df["sales_target"] == 0)).sum()),
+                    "test": int(((test_df["type"] == result.family) & (test_df["sales_target"] == 0)).sum()),
+                },
                 "test_metrics": result.test_metrics,
             }
             for result in family_results
@@ -839,6 +1332,7 @@ def main() -> int:
             result.family: result.training_diagnostics
             for result in family_results
         },
+        "rolling_validation_summary": rolling_summary_df.to_dict(orient="records") if not rolling_summary_df.empty else [],
     }
     (OUTPUT_DIR / "run_summary.json").write_text(json.dumps(summary, indent=2), encoding="utf-8")
 

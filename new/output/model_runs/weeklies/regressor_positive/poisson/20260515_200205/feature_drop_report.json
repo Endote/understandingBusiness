@@ -1,0 +1,35 @@
+{
+  "family": "Weeklies",
+  "configured_dropped_features": [
+    "product_id",
+    "stored_id",
+    "onsaledate",
+    "type",
+    "sales_target",
+    "soldqty_raw",
+    "drawqty",
+    "positive_sale_flag",
+    "negative_sales_flag",
+    "stockout_proxy_flag",
+    "split"
+  ],
+  "active_dropped_numeric_features": [],
+  "active_dropped_categorical_features": [],
+  "configured_non_contract_columns": [
+    "product_id",
+    "stored_id",
+    "onsaledate",
+    "type",
+    "sales_target",
+    "soldqty_raw",
+    "drawqty",
+    "positive_sale_flag",
+    "negative_sales_flag",
+    "stockout_proxy_flag",
+    "split"
+  ],
+  "numeric_features_before": 67,
+  "categorical_features_before": 8,
+  "numeric_features_after": 67,
+  "categorical_features_after": 8
+}
