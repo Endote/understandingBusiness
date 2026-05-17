@@ -835,7 +835,13 @@ def add_embedding_affinity_features(
     return frame, summary
 
 
-def add_embedding_features(frame: pd.DataFrame, family: str, db_uri: str, family_dir: Path) -> tuple[pd.DataFrame, dict[str, object]]:
+def add_embedding_features(
+    frame: pd.DataFrame,
+    family: str,
+    db_uri: str,
+    family_dir: Path,
+    stage: str = "regressor_positive",
+) -> tuple[pd.DataFrame, dict[str, object]]:
     log(f"Loading {family} content embeddings for PCA and analog features")
     embedding_products, embedding_matrix = load_family_embeddings(db_uri, family)
     product_ids = embedding_products["product_id"].to_numpy()
@@ -890,7 +896,7 @@ def add_embedding_features(frame: pd.DataFrame, family: str, db_uri: str, family
         "analog_features": analog_summary,
         "affinity_features": affinity_summary,
     }
-    artifact_path = family_dir / "embedding_pca_regressor_positive.json"
+    artifact_path = family_dir / f"embedding_pca_{stage}.json"
     artifact_path.write_text(json.dumps(artifact, indent=2), encoding="utf-8")
     return frame, {
         key: value

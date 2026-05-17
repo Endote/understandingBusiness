@@ -1,336 +1,1111 @@
-# Weeklies Positive-Only Regressor Tail-Layer Improvement
+# Weeklies Final Benchmark Pipeline
 
-Created: 2026-05-17 12:39:57 CEST
+Updated: 2026-05-17 21:55 CEST
 
-This note records the grounded Weeklies positive-only regressor improvement achieved in the 2026-05-17 experiment loop. It is based on the current codebase and generated model artifacts, not persisted planning notes.
+This is the final benchmark record for the Weeklies all-row pipeline. It is grounded in the end-to-end run completed from the current Postgres state and current codebase, not in older notes.
 
-## Manual Run
+## Final Benchmark Artifacts
 
+- Positive-only dataset: `new/output/modeling_datasets/weeklies/regressor_positive.parquet`
+- All-row incidence dataset: `new/output/modeling_datasets/weeklies/classifier_all.parquet`
+- Positive-only regressor: `new/output/model_runs/weeklies/regressor_positive/asym_curve_log1p/20260517_205934`
+- Tail + low amount layer: `new/output/tail_layer_runs/weeklies/regressor_positive/tail_q70/20260517_210107`
+- Incidence classifier: `new/output/model_runs/weeklies/classifier_all/binary_logistic/20260517_211136`
+- Incidence calibration: `new/output/model_runs/weeklies/classifier_all/calibration/20260517_213616`
+- Full pipeline grid: `new/output/pipeline_runs/weeklies/incidence_grid/20260517_214324`
+- Final summary CSV: `new/output/pipeline_runs/weeklies/incidence_grid/20260517_214324/final_benchmark_summary.csv`
+
+## Method
+
+1. Build positive-only amount rows: `DrawQty != 0 and SoldQty > 0`; target is `sales_target`.
+2. Build all-row incidence rows: `DrawQty != 0`; target is `positive_sale_flag`.
+3. Train the positive-only XGBoost regressor with the asymmetric decile objective, bottom-over penalties, D7-D8 underprediction pressure, D9-D10 cap pressure, total-ratio penalty, and stockout-aware weighting.
+4. Train the positive-only tail/low layer on the same feature contract: `tail_q70` detects high-positive rows; `low_le1p0` detects low-positive rows; validation selected `alpha=2.0`, `low_alpha=1.2`, `scale=0.45`.
+5. Train the all-row incidence classifier with the classifier feature contract. It intentionally drops raw PCA and affinity features through `drop-feature-substrings=affinity,embedding_pca_`.
+6. Calibrate incidence probabilities to target about `1.20x` positive-rate overprediction, with probability-bin and grouped shrinkage variants.
+7. Evaluate the full pipeline grid. The clean benchmark is validation-selected, not test-selected.
+
+## Selection Objective
+
+```text
+7.5*d1_d3_over_115 + 2.5*d4_d6_outside_0.90_1.10 + 7*d7_d10_below_1.10 + 4*d7_d10_above_1.30 + 2.5*total_below_1.15 + 2*total_above_1.35 + 2*zero_leak + 0.35*WAPE
 ```
+
+## Final Validation-Selected Variant
+
+Variant:
+
+```text
+G_soft_gate_amount_calibrated_t0.70_floor0.00_low0.85_mid1.10_top0.95_scale0.95
+```
+
+| Metric | Value |
+|---|---:|
+| score | 2.4150 |
+| WAPE | 1.2258 |
+| total ratio | 1.5014 |
+| zero-row ratio | 0.3390 |
+| actual units | 1,175,879 |
+| predicted units | 1,765,440 |
+
+| Decile | Ratio |
+|---:|---:|
+| D1 | 1.390 |
+| D2 | 1.144 |
+| D3 | 1.133 |
+| D4 | 0.977 |
+| D5 | 1.129 |
+| D6 | 0.966 |
+| D7 | 0.943 |
+| D8 | 1.107 |
+| D9 | 1.406 |
+| D10 | 1.166 |
+
+This is the correct final benchmark. It overshoots total ratio, D1, and D9; D7 remains under target; D8 and D10 are acceptable.
+
+## Test-Best Diagnostic Only
+
+Variant:
+
+```text
+G_soft_gate_amount_raw_t0.75_floor0.05_low0.85_mid1.10_top0.95_scale0.95
+```
+
+| Metric | Value |
+|---|---:|
+| score | 1.8978 |
+| WAPE | 1.1758 |
+| total ratio | 1.3164 |
+| zero-row ratio | 0.2727 |
+| actual units | 1,175,879 |
+| predicted units | 1,547,944 |
+
+| Decile | Ratio |
+|---:|---:|
+| D1 | 1.144 |
+| D2 | 0.892 |
+| D3 | 0.887 |
+| D4 | 0.791 |
+| D5 | 0.940 |
+| D6 | 0.803 |
+| D7 | 0.794 |
+| D8 | 0.967 |
+| D9 | 1.295 |
+| D10 | 1.112 |
+
+This is not the benchmark selection because it is chosen on test. It is retained only to show the best available shape in the evaluated grid.
+
+## Model Feature Contracts
+
+### Positive Regressor And Tail/Low Layer
+
+These models use the same effective feature contract.
+
+- Row filter: `DrawQty != 0 and SoldQty > 0`
+- Target: regressor uses `sales_target`; tail classifier uses top positive-sale quantile `q70`; low classifier uses `sales_target <= 1.0`.
+- Categorical features: 9
+- Numeric features: 551
+- Total effective features before XGBoost encoding: 560
+- Active configured numeric drop: `onsale_week`
+
+Feature family counts:
+
+| Family | Count |
+|---|---:|
+| direct_display_calendar | 7 |
+| completed_base_priors | 68 |
+| completed_window_priors | 63 |
+| completed_recency_priors | 21 |
+| month_priors | 15 |
+| embedding_analog | 24 |
+| embedding_affinity_base | 98 |
+| embedding_affinity_derived | 84 |
+| generic_interactions | 29 |
+| demographics | 32 |
+
+Categorical features:
+
+```text
+title
+store_id
+onsale_month_cat
+segment
+subsegment
+frequency
+store_chain
+region
+classoftrade
+```
+
+Effective numeric features:
+
+```text
+price
+issue_length_days
+onsale_month
+onsale_dow
+merchandised
+facings
+pockets
+global_prior_positive_rate
+global_prior_positive_avg_sales
+global_prior_obs
+chain_prior_positive_rate
+chain_prior_positive_avg_sales
+chain_prior_obs
+class_prior_positive_rate
+class_prior_positive_avg_sales
+class_prior_obs
+store_prior_positive_rate
+store_prior_positive_avg_sales
+store_prior_obs
+store_title_prior_positive_rate
+store_title_prior_positive_avg_sales
+store_title_prior_obs
+store_segment_prior_positive_rate
+store_segment_prior_positive_avg_sales
+store_segment_prior_obs
+store_subsegment_prior_positive_rate
+store_subsegment_prior_positive_avg_sales
+store_subsegment_prior_obs
+store_type_prior_positive_rate
+store_type_prior_positive_avg_sales
+store_type_prior_obs
+chain_segment_prior_positive_rate
+chain_segment_prior_positive_avg_sales
+chain_segment_prior_obs
+chain_class_subsegment_prior_positive_rate
+chain_class_subsegment_prior_positive_avg_sales
+chain_class_subsegment_prior_obs
+chain_title_prior_positive_rate
+chain_title_prior_positive_avg_sales
+chain_title_prior_obs
+class_subsegment_prior_positive_rate
+class_subsegment_prior_positive_avg_sales
+class_subsegment_prior_obs
+class_title_prior_positive_rate
+class_title_prior_positive_avg_sales
+class_title_prior_obs
+title_prior_positive_rate
+title_prior_positive_avg_sales
+title_prior_obs
+segment_prior_positive_rate
+segment_prior_positive_avg_sales
+segment_prior_obs
+subsegment_prior_positive_rate
+subsegment_prior_positive_avg_sales
+subsegment_prior_obs
+global_completed_90d_positive_rate
+global_completed_90d_positive_avg_sales
+global_completed_90d_obs
+global_completed_180d_positive_rate
+global_completed_180d_positive_avg_sales
+global_completed_180d_obs
+global_completed_365d_positive_rate
+global_completed_365d_positive_avg_sales
+global_completed_365d_obs
+store_completed_90d_positive_rate
+store_completed_90d_positive_avg_sales
+store_completed_90d_obs
+store_completed_180d_positive_rate
+store_completed_180d_positive_avg_sales
+store_completed_180d_obs
+store_completed_365d_positive_rate
+store_completed_365d_positive_avg_sales
+store_completed_365d_obs
+store_segment_completed_90d_positive_rate
+store_segment_completed_90d_positive_avg_sales
+store_segment_completed_90d_obs
+store_segment_completed_180d_positive_rate
+store_segment_completed_180d_positive_avg_sales
+store_segment_completed_180d_obs
+store_segment_completed_365d_positive_rate
+store_segment_completed_365d_positive_avg_sales
+store_segment_completed_365d_obs
+store_subsegment_completed_90d_positive_rate
+store_subsegment_completed_90d_positive_avg_sales
+store_subsegment_completed_90d_obs
+store_subsegment_completed_180d_positive_rate
+store_subsegment_completed_180d_positive_avg_sales
+store_subsegment_completed_180d_obs
+store_subsegment_completed_365d_positive_rate
+store_subsegment_completed_365d_positive_avg_sales
+store_subsegment_completed_365d_obs
+chain_segment_completed_90d_positive_rate
+chain_segment_completed_90d_positive_avg_sales
+chain_segment_completed_90d_obs
+chain_segment_completed_180d_positive_rate
+chain_segment_completed_180d_positive_avg_sales
+chain_segment_completed_180d_obs
+chain_segment_completed_365d_positive_rate
+chain_segment_completed_365d_positive_avg_sales
+chain_segment_completed_365d_obs
+chain_class_subsegment_completed_90d_positive_rate
+chain_class_subsegment_completed_90d_positive_avg_sales
+chain_class_subsegment_completed_90d_obs
+chain_class_subsegment_completed_180d_positive_rate
+chain_class_subsegment_completed_180d_positive_avg_sales
+chain_class_subsegment_completed_180d_obs
+chain_class_subsegment_completed_365d_positive_rate
+chain_class_subsegment_completed_365d_positive_avg_sales
+chain_class_subsegment_completed_365d_obs
+class_subsegment_completed_90d_positive_rate
+class_subsegment_completed_90d_positive_avg_sales
+class_subsegment_completed_90d_obs
+class_subsegment_completed_180d_positive_rate
+class_subsegment_completed_180d_positive_avg_sales
+class_subsegment_completed_180d_obs
+class_subsegment_completed_365d_positive_rate
+class_subsegment_completed_365d_positive_avg_sales
+class_subsegment_completed_365d_obs
+global_completed_recency_hl180_positive_rate
+global_completed_recency_hl180_positive_avg_sales
+global_completed_recency_hl180_obs
+store_completed_recency_hl180_positive_rate
+store_completed_recency_hl180_positive_avg_sales
+store_completed_recency_hl180_obs
+store_segment_completed_recency_hl180_positive_rate
+store_segment_completed_recency_hl180_positive_avg_sales
+store_segment_completed_recency_hl180_obs
+store_subsegment_completed_recency_hl180_positive_rate
+store_subsegment_completed_recency_hl180_positive_avg_sales
+store_subsegment_completed_recency_hl180_obs
+chain_segment_completed_recency_hl180_positive_rate
+chain_segment_completed_recency_hl180_positive_avg_sales
+chain_segment_completed_recency_hl180_obs
+chain_class_subsegment_completed_recency_hl180_positive_rate
+chain_class_subsegment_completed_recency_hl180_positive_avg_sales
+chain_class_subsegment_completed_recency_hl180_obs
+class_subsegment_completed_recency_hl180_positive_rate
+class_subsegment_completed_recency_hl180_positive_avg_sales
+class_subsegment_completed_recency_hl180_obs
+global_month_prior_positive_rate
+global_month_prior_positive_avg_sales
+global_month_prior_obs
+segment_month_prior_positive_rate
+segment_month_prior_positive_avg_sales
+segment_month_prior_obs
+subsegment_month_prior_positive_rate
+subsegment_month_prior_positive_avg_sales
+subsegment_month_prior_obs
+store_subsegment_month_prior_positive_rate
+store_subsegment_month_prior_positive_avg_sales
+store_subsegment_month_prior_obs
+chain_segment_month_prior_positive_rate
+chain_segment_month_prior_positive_avg_sales
+chain_segment_month_prior_obs
+embedding_analog_k10_neighbor_count
+embedding_analog_k10_effective_neighbor_count
+embedding_analog_k10_top1_similarity
+embedding_analog_k10_mean_similarity
+embedding_analog_k10_weight_sum
+embedding_analog_k10_weighted_avg_positive_sales
+embedding_analog_k10_weighted_positive_sale_rate
+embedding_analog_k10_weighted_p50_positive_sales
+embedding_analog_k10_weighted_p75_positive_sales
+embedding_analog_k10_weighted_p90_positive_sales
+embedding_analog_k10_weighted_p90_minus_p50_positive_sales
+embedding_analog_k10_weighted_p90_over_avg_positive_sales
+embedding_analog_k10_subsegment_prior_positive_rate
+embedding_analog_k10_subsegment_prior_avg_positive_sales
+embedding_analog_k10_subsegment_prior_p50_positive_sales
+embedding_analog_k10_subsegment_prior_p75_positive_sales
+embedding_analog_k10_subsegment_prior_p90_positive_sales
+embedding_analog_k10_shrunk_positive_sale_rate
+embedding_analog_k10_shrunk_avg_positive_sales
+embedding_analog_k10_shrunk_p50_positive_sales
+embedding_analog_k10_shrunk_p75_positive_sales
+embedding_analog_k10_shrunk_p90_positive_sales
+embedding_analog_k10_shrunk_p90_minus_p50_positive_sales
+embedding_analog_k10_shrunk_p90_over_avg_positive_sales
+global_affinity_tail_similarity
+global_affinity_low_similarity
+global_affinity_tail_minus_low_similarity
+global_affinity_tail_obs
+global_affinity_low_obs
+global_affinity_tail_avg_sales
+global_affinity_low_avg_sales
+store_affinity_tail_similarity
+store_affinity_low_similarity
+store_affinity_tail_minus_low_similarity
+store_affinity_tail_obs
+store_affinity_low_obs
+store_affinity_tail_avg_sales
+store_affinity_low_avg_sales
+store_segment_affinity_tail_similarity
+store_segment_affinity_low_similarity
+store_segment_affinity_tail_minus_low_similarity
+store_segment_affinity_tail_obs
+store_segment_affinity_low_obs
+store_segment_affinity_tail_avg_sales
+store_segment_affinity_low_avg_sales
+store_subsegment_affinity_tail_similarity
+store_subsegment_affinity_low_similarity
+store_subsegment_affinity_tail_minus_low_similarity
+store_subsegment_affinity_tail_obs
+store_subsegment_affinity_low_obs
+store_subsegment_affinity_tail_avg_sales
+store_subsegment_affinity_low_avg_sales
+store_title_affinity_tail_similarity
+store_title_affinity_low_similarity
+store_title_affinity_tail_minus_low_similarity
+store_title_affinity_tail_obs
+store_title_affinity_low_obs
+store_title_affinity_tail_avg_sales
+store_title_affinity_low_avg_sales
+chain_title_affinity_tail_similarity
+chain_title_affinity_low_similarity
+chain_title_affinity_tail_minus_low_similarity
+chain_title_affinity_tail_obs
+chain_title_affinity_low_obs
+chain_title_affinity_tail_avg_sales
+chain_title_affinity_low_avg_sales
+class_title_affinity_tail_similarity
+class_title_affinity_low_similarity
+class_title_affinity_tail_minus_low_similarity
+class_title_affinity_tail_obs
+class_title_affinity_low_obs
+class_title_affinity_tail_avg_sales
+class_title_affinity_low_avg_sales
+chain_segment_affinity_tail_similarity
+chain_segment_affinity_low_similarity
+chain_segment_affinity_tail_minus_low_similarity
+chain_segment_affinity_tail_obs
+chain_segment_affinity_low_obs
+chain_segment_affinity_tail_avg_sales
+chain_segment_affinity_low_avg_sales
+chain_class_subsegment_affinity_tail_similarity
+chain_class_subsegment_affinity_low_similarity
+chain_class_subsegment_affinity_tail_minus_low_similarity
+chain_class_subsegment_affinity_tail_obs
+chain_class_subsegment_affinity_low_obs
+chain_class_subsegment_affinity_tail_avg_sales
+chain_class_subsegment_affinity_low_avg_sales
+class_subsegment_affinity_tail_similarity
+class_subsegment_affinity_low_similarity
+class_subsegment_affinity_tail_minus_low_similarity
+class_subsegment_affinity_tail_obs
+class_subsegment_affinity_low_obs
+class_subsegment_affinity_tail_avg_sales
+class_subsegment_affinity_low_avg_sales
+chain_affinity_tail_similarity
+chain_affinity_low_similarity
+chain_affinity_tail_minus_low_similarity
+chain_affinity_tail_obs
+chain_affinity_low_obs
+chain_affinity_tail_avg_sales
+chain_affinity_low_avg_sales
+class_affinity_tail_similarity
+class_affinity_low_similarity
+class_affinity_tail_minus_low_similarity
+class_affinity_tail_obs
+class_affinity_low_obs
+class_affinity_tail_avg_sales
+class_affinity_low_avg_sales
+segment_affinity_tail_similarity
+segment_affinity_low_similarity
+segment_affinity_tail_minus_low_similarity
+segment_affinity_tail_obs
+segment_affinity_low_obs
+segment_affinity_tail_avg_sales
+segment_affinity_low_avg_sales
+subsegment_affinity_tail_similarity
+subsegment_affinity_low_similarity
+subsegment_affinity_tail_minus_low_similarity
+subsegment_affinity_tail_obs
+subsegment_affinity_low_obs
+subsegment_affinity_tail_avg_sales
+subsegment_affinity_low_avg_sales
+display_capacity
+merchandised_display_capacity
+log_store_prior_obs
+log_store_subsegment_prior_obs
+log_chain_segment_prior_obs
+log_segment_prior_obs
+store_prior_avg_over_global_avg
+store_subsegment_avg_over_store_avg
+store_subsegment_avg_over_segment_avg
+chain_segment_avg_over_segment_avg
+chain_segment_avg_over_global_avg
+segment_avg_over_global_avg
+store_prior_rate_over_global_rate
+store_subsegment_rate_over_store_rate
+chain_segment_rate_over_segment_rate
+display_x_store_prior_avg
+display_x_chain_segment_avg
+merchandised_x_chain_segment_avg
+pockets_x_store_prior_avg
+facings_x_chain_segment_avg
+store_chain_subsegment_tail_signal
+embedding_p90_over_store_subsegment_avg
+embedding_p90_over_chain_segment_avg
+embedding_p90_x_store_subsegment_avg
+embedding_p90_x_chain_segment_avg
+embedding_tail_confidence
+embedding_tail_uncertainty_confidence
+embedding_tail_context_signal
+embedding_tail_context_confidence
+global_affinity_tail_signal_x_analog_p90
+global_affinity_tail_signal_x_prior_avg
+global_affinity_tail_confidence
+global_affinity_tail_avg_over_prior_avg
+global_affinity_tail_avg_minus_low_avg
+global_affinity_tail_obs_log
+store_affinity_tail_signal_x_analog_p90
+store_affinity_tail_signal_x_prior_avg
+store_affinity_tail_confidence
+store_affinity_tail_avg_over_prior_avg
+store_affinity_tail_avg_minus_low_avg
+store_affinity_tail_obs_log
+store_segment_affinity_tail_signal_x_analog_p90
+store_segment_affinity_tail_signal_x_prior_avg
+store_segment_affinity_tail_confidence
+store_segment_affinity_tail_avg_over_prior_avg
+store_segment_affinity_tail_avg_minus_low_avg
+store_segment_affinity_tail_obs_log
+store_subsegment_affinity_tail_signal_x_analog_p90
+store_subsegment_affinity_tail_signal_x_prior_avg
+store_subsegment_affinity_tail_confidence
+store_subsegment_affinity_tail_avg_over_prior_avg
+store_subsegment_affinity_tail_avg_minus_low_avg
+store_subsegment_affinity_tail_obs_log
+store_title_affinity_tail_signal_x_analog_p90
+store_title_affinity_tail_signal_x_prior_avg
+store_title_affinity_tail_confidence
+store_title_affinity_tail_avg_over_prior_avg
+store_title_affinity_tail_avg_minus_low_avg
+store_title_affinity_tail_obs_log
+chain_title_affinity_tail_signal_x_analog_p90
+chain_title_affinity_tail_signal_x_prior_avg
+chain_title_affinity_tail_confidence
+chain_title_affinity_tail_avg_over_prior_avg
+chain_title_affinity_tail_avg_minus_low_avg
+chain_title_affinity_tail_obs_log
+class_title_affinity_tail_signal_x_analog_p90
+class_title_affinity_tail_signal_x_prior_avg
+class_title_affinity_tail_confidence
+class_title_affinity_tail_avg_over_prior_avg
+class_title_affinity_tail_avg_minus_low_avg
+class_title_affinity_tail_obs_log
+chain_segment_affinity_tail_signal_x_analog_p90
+chain_segment_affinity_tail_signal_x_prior_avg
+chain_segment_affinity_tail_confidence
+chain_segment_affinity_tail_avg_over_prior_avg
+chain_segment_affinity_tail_avg_minus_low_avg
+chain_segment_affinity_tail_obs_log
+chain_class_subsegment_affinity_tail_signal_x_analog_p90
+chain_class_subsegment_affinity_tail_signal_x_prior_avg
+chain_class_subsegment_affinity_tail_confidence
+chain_class_subsegment_affinity_tail_avg_over_prior_avg
+chain_class_subsegment_affinity_tail_avg_minus_low_avg
+chain_class_subsegment_affinity_tail_obs_log
+class_subsegment_affinity_tail_signal_x_analog_p90
+class_subsegment_affinity_tail_signal_x_prior_avg
+class_subsegment_affinity_tail_confidence
+class_subsegment_affinity_tail_avg_over_prior_avg
+class_subsegment_affinity_tail_avg_minus_low_avg
+class_subsegment_affinity_tail_obs_log
+chain_affinity_tail_signal_x_analog_p90
+chain_affinity_tail_signal_x_prior_avg
+chain_affinity_tail_confidence
+chain_affinity_tail_avg_over_prior_avg
+chain_affinity_tail_avg_minus_low_avg
+chain_affinity_tail_obs_log
+class_affinity_tail_signal_x_analog_p90
+class_affinity_tail_signal_x_prior_avg
+class_affinity_tail_confidence
+class_affinity_tail_avg_over_prior_avg
+class_affinity_tail_avg_minus_low_avg
+class_affinity_tail_obs_log
+segment_affinity_tail_signal_x_analog_p90
+segment_affinity_tail_signal_x_prior_avg
+segment_affinity_tail_confidence
+segment_affinity_tail_avg_over_prior_avg
+segment_affinity_tail_avg_minus_low_avg
+segment_affinity_tail_obs_log
+subsegment_affinity_tail_signal_x_analog_p90
+subsegment_affinity_tail_signal_x_prior_avg
+subsegment_affinity_tail_confidence
+subsegment_affinity_tail_avg_over_prior_avg
+subsegment_affinity_tail_avg_minus_low_avg
+subsegment_affinity_tail_obs_log
+embedding_pca_001
+embedding_pca_002
+embedding_pca_003
+embedding_pca_004
+embedding_pca_005
+embedding_pca_006
+embedding_pca_007
+embedding_pca_008
+embedding_pca_009
+embedding_pca_010
+embedding_pca_011
+embedding_pca_012
+embedding_pca_013
+embedding_pca_014
+embedding_pca_015
+embedding_pca_016
+embedding_pca_017
+embedding_pca_018
+embedding_pca_019
+embedding_pca_020
+embedding_pca_021
+embedding_pca_022
+embedding_pca_023
+embedding_pca_024
+embedding_pca_025
+embedding_pca_026
+embedding_pca_027
+embedding_pca_028
+embedding_pca_029
+embedding_pca_030
+embedding_pca_031
+embedding_pca_032
+embedding_pca_033
+embedding_pca_034
+embedding_pca_035
+embedding_pca_036
+embedding_pca_037
+embedding_pca_038
+embedding_pca_039
+embedding_pca_040
+embedding_pca_041
+embedding_pca_042
+embedding_pca_043
+embedding_pca_044
+embedding_pca_045
+embedding_pca_046
+embedding_pca_047
+embedding_pca_048
+embedding_pca_049
+embedding_pca_050
+embedding_pca_051
+embedding_pca_052
+embedding_pca_053
+embedding_pca_054
+embedding_pca_055
+embedding_pca_056
+embedding_pca_057
+embedding_pca_058
+embedding_pca_059
+embedding_pca_060
+embedding_pca_061
+embedding_pca_062
+embedding_pca_063
+embedding_pca_064
+embedding_pca_065
+embedding_pca_066
+embedding_pca_067
+embedding_pca_068
+embedding_pca_069
+embedding_pca_070
+embedding_pca_071
+embedding_pca_072
+embedding_pca_073
+embedding_pca_074
+embedding_pca_075
+embedding_pca_076
+embedding_pca_077
+embedding_pca_078
+embedding_pca_079
+embedding_pca_080
+embedding_pca_081
+embedding_pca_082
+embedding_pca_083
+embedding_pca_084
+embedding_pca_085
+embedding_pca_086
+embedding_pca_087
+embedding_pca_088
+embedding_pca_089
+embedding_pca_090
+embedding_pca_091
+embedding_pca_092
+embedding_pca_093
+embedding_pca_094
+embedding_pca_095
+embedding_pca_096
+embedding_pca_097
+embedding_pca_098
+embedding_pca_099
+embedding_pca_100
+embedding_pca_101
+embedding_pca_102
+embedding_pca_103
+embedding_pca_104
+embedding_pca_105
+embedding_pca_106
+embedding_pca_107
+embedding_pca_108
+embedding_pca_109
+embedding_pca_110
+embedding_pca_111
+embedding_pca_112
+embedding_pca_113
+embedding_pca_114
+embedding_pca_115
+embedding_pca_116
+embedding_pca_117
+embedding_pca_118
+embedding_pca_119
+embedding_pca_120
+embedding_pca_121
+embedding_pca_122
+embedding_pca_123
+embedding_pca_124
+embedding_pca_125
+embedding_pca_126
+embedding_pca_127
+embedding_pca_128
+embedding_pca_129
+embedding_pca_130
+age_19_and_under
+age_20_to_29
+age_30_to_44
+age_45_to_59
+age_60_and_over
+male
+female
+two_or_more_races
+less_than_10k
+between_10k_and_14k
+between_15k_and_24k
+between_25k_and_34k
+between_35k_and_49k
+between_50k_and_74k
+between_75k_and_99k
+between_100k_and_149k
+between_150k_and_199k
+income_200k_or_more
+less_than_9th_grade
+between_9th_and_12th_grade_no_diploma
+high_school_graduate_includes_equivalency
+some_college_no_degree
+associates_degree
+bachelors_degree
+graduate_or_professional_degree
+population
+household_type_married_couple_household
+household_type_cohabiting_couple_household
+household_type_male_householder_no_spouse_partner_present
+household_type_female_householder_no_spouse_partner_present
+family_household
+non_family_household
+```
+
+### Incidence Classifier
+
+The incidence model has the same row universe as the final scoring frame, but a different effective numeric feature contract because affinity and raw PCA dimensions are dropped for generalization.
+
+- Row filter: `DrawQty != 0`
+- Target: `positive_sale_flag`
+- Categorical features: 9
+- Numeric features: 239
+- Total effective features before XGBoost encoding: 248
+- Active configured numeric drop: `onsale_week`
+- Explicit classifier substring drops: `affinity`, `embedding_pca_`
+
+Feature family counts:
+
+| Family | Count |
+|---|---:|
+| direct_display_calendar | 7 |
+| completed_base_priors | 68 |
+| completed_window_priors | 63 |
+| completed_recency_priors | 21 |
+| month_priors | 15 |
+| embedding_analog | 24 |
+| embedding_affinity_base | 0 |
+| embedding_affinity_derived | 0 |
+| generic_interactions | 29 |
+| demographics | 32 |
+
+Categorical features:
+
+```text
+title
+store_id
+onsale_month_cat
+segment
+subsegment
+frequency
+store_chain
+region
+classoftrade
+```
+
+Effective numeric features:
+
+```text
+price
+issue_length_days
+onsale_month
+onsale_dow
+merchandised
+facings
+pockets
+global_prior_positive_rate
+global_prior_positive_avg_sales
+global_prior_obs
+chain_prior_positive_rate
+chain_prior_positive_avg_sales
+chain_prior_obs
+class_prior_positive_rate
+class_prior_positive_avg_sales
+class_prior_obs
+store_prior_positive_rate
+store_prior_positive_avg_sales
+store_prior_obs
+store_title_prior_positive_rate
+store_title_prior_positive_avg_sales
+store_title_prior_obs
+store_segment_prior_positive_rate
+store_segment_prior_positive_avg_sales
+store_segment_prior_obs
+store_subsegment_prior_positive_rate
+store_subsegment_prior_positive_avg_sales
+store_subsegment_prior_obs
+store_type_prior_positive_rate
+store_type_prior_positive_avg_sales
+store_type_prior_obs
+chain_segment_prior_positive_rate
+chain_segment_prior_positive_avg_sales
+chain_segment_prior_obs
+chain_class_subsegment_prior_positive_rate
+chain_class_subsegment_prior_positive_avg_sales
+chain_class_subsegment_prior_obs
+chain_title_prior_positive_rate
+chain_title_prior_positive_avg_sales
+chain_title_prior_obs
+class_subsegment_prior_positive_rate
+class_subsegment_prior_positive_avg_sales
+class_subsegment_prior_obs
+class_title_prior_positive_rate
+class_title_prior_positive_avg_sales
+class_title_prior_obs
+title_prior_positive_rate
+title_prior_positive_avg_sales
+title_prior_obs
+segment_prior_positive_rate
+segment_prior_positive_avg_sales
+segment_prior_obs
+subsegment_prior_positive_rate
+subsegment_prior_positive_avg_sales
+subsegment_prior_obs
+global_completed_90d_positive_rate
+global_completed_90d_positive_avg_sales
+global_completed_90d_obs
+global_completed_180d_positive_rate
+global_completed_180d_positive_avg_sales
+global_completed_180d_obs
+global_completed_365d_positive_rate
+global_completed_365d_positive_avg_sales
+global_completed_365d_obs
+store_completed_90d_positive_rate
+store_completed_90d_positive_avg_sales
+store_completed_90d_obs
+store_completed_180d_positive_rate
+store_completed_180d_positive_avg_sales
+store_completed_180d_obs
+store_completed_365d_positive_rate
+store_completed_365d_positive_avg_sales
+store_completed_365d_obs
+store_segment_completed_90d_positive_rate
+store_segment_completed_90d_positive_avg_sales
+store_segment_completed_90d_obs
+store_segment_completed_180d_positive_rate
+store_segment_completed_180d_positive_avg_sales
+store_segment_completed_180d_obs
+store_segment_completed_365d_positive_rate
+store_segment_completed_365d_positive_avg_sales
+store_segment_completed_365d_obs
+store_subsegment_completed_90d_positive_rate
+store_subsegment_completed_90d_positive_avg_sales
+store_subsegment_completed_90d_obs
+store_subsegment_completed_180d_positive_rate
+store_subsegment_completed_180d_positive_avg_sales
+store_subsegment_completed_180d_obs
+store_subsegment_completed_365d_positive_rate
+store_subsegment_completed_365d_positive_avg_sales
+store_subsegment_completed_365d_obs
+chain_segment_completed_90d_positive_rate
+chain_segment_completed_90d_positive_avg_sales
+chain_segment_completed_90d_obs
+chain_segment_completed_180d_positive_rate
+chain_segment_completed_180d_positive_avg_sales
+chain_segment_completed_180d_obs
+chain_segment_completed_365d_positive_rate
+chain_segment_completed_365d_positive_avg_sales
+chain_segment_completed_365d_obs
+chain_class_subsegment_completed_90d_positive_rate
+chain_class_subsegment_completed_90d_positive_avg_sales
+chain_class_subsegment_completed_90d_obs
+chain_class_subsegment_completed_180d_positive_rate
+chain_class_subsegment_completed_180d_positive_avg_sales
+chain_class_subsegment_completed_180d_obs
+chain_class_subsegment_completed_365d_positive_rate
+chain_class_subsegment_completed_365d_positive_avg_sales
+chain_class_subsegment_completed_365d_obs
+class_subsegment_completed_90d_positive_rate
+class_subsegment_completed_90d_positive_avg_sales
+class_subsegment_completed_90d_obs
+class_subsegment_completed_180d_positive_rate
+class_subsegment_completed_180d_positive_avg_sales
+class_subsegment_completed_180d_obs
+class_subsegment_completed_365d_positive_rate
+class_subsegment_completed_365d_positive_avg_sales
+class_subsegment_completed_365d_obs
+global_completed_recency_hl180_positive_rate
+global_completed_recency_hl180_positive_avg_sales
+global_completed_recency_hl180_obs
+store_completed_recency_hl180_positive_rate
+store_completed_recency_hl180_positive_avg_sales
+store_completed_recency_hl180_obs
+store_segment_completed_recency_hl180_positive_rate
+store_segment_completed_recency_hl180_positive_avg_sales
+store_segment_completed_recency_hl180_obs
+store_subsegment_completed_recency_hl180_positive_rate
+store_subsegment_completed_recency_hl180_positive_avg_sales
+store_subsegment_completed_recency_hl180_obs
+chain_segment_completed_recency_hl180_positive_rate
+chain_segment_completed_recency_hl180_positive_avg_sales
+chain_segment_completed_recency_hl180_obs
+chain_class_subsegment_completed_recency_hl180_positive_rate
+chain_class_subsegment_completed_recency_hl180_positive_avg_sales
+chain_class_subsegment_completed_recency_hl180_obs
+class_subsegment_completed_recency_hl180_positive_rate
+class_subsegment_completed_recency_hl180_positive_avg_sales
+class_subsegment_completed_recency_hl180_obs
+global_month_prior_positive_rate
+global_month_prior_positive_avg_sales
+global_month_prior_obs
+segment_month_prior_positive_rate
+segment_month_prior_positive_avg_sales
+segment_month_prior_obs
+subsegment_month_prior_positive_rate
+subsegment_month_prior_positive_avg_sales
+subsegment_month_prior_obs
+store_subsegment_month_prior_positive_rate
+store_subsegment_month_prior_positive_avg_sales
+store_subsegment_month_prior_obs
+chain_segment_month_prior_positive_rate
+chain_segment_month_prior_positive_avg_sales
+chain_segment_month_prior_obs
+embedding_analog_k10_neighbor_count
+embedding_analog_k10_effective_neighbor_count
+embedding_analog_k10_top1_similarity
+embedding_analog_k10_mean_similarity
+embedding_analog_k10_weight_sum
+embedding_analog_k10_weighted_avg_positive_sales
+embedding_analog_k10_weighted_positive_sale_rate
+embedding_analog_k10_weighted_p50_positive_sales
+embedding_analog_k10_weighted_p75_positive_sales
+embedding_analog_k10_weighted_p90_positive_sales
+embedding_analog_k10_weighted_p90_minus_p50_positive_sales
+embedding_analog_k10_weighted_p90_over_avg_positive_sales
+embedding_analog_k10_subsegment_prior_positive_rate
+embedding_analog_k10_subsegment_prior_avg_positive_sales
+embedding_analog_k10_subsegment_prior_p50_positive_sales
+embedding_analog_k10_subsegment_prior_p75_positive_sales
+embedding_analog_k10_subsegment_prior_p90_positive_sales
+embedding_analog_k10_shrunk_positive_sale_rate
+embedding_analog_k10_shrunk_avg_positive_sales
+embedding_analog_k10_shrunk_p50_positive_sales
+embedding_analog_k10_shrunk_p75_positive_sales
+embedding_analog_k10_shrunk_p90_positive_sales
+embedding_analog_k10_shrunk_p90_minus_p50_positive_sales
+embedding_analog_k10_shrunk_p90_over_avg_positive_sales
+display_capacity
+merchandised_display_capacity
+log_store_prior_obs
+log_store_subsegment_prior_obs
+log_chain_segment_prior_obs
+log_segment_prior_obs
+store_prior_avg_over_global_avg
+store_subsegment_avg_over_store_avg
+store_subsegment_avg_over_segment_avg
+chain_segment_avg_over_segment_avg
+chain_segment_avg_over_global_avg
+segment_avg_over_global_avg
+store_prior_rate_over_global_rate
+store_subsegment_rate_over_store_rate
+chain_segment_rate_over_segment_rate
+display_x_store_prior_avg
+display_x_chain_segment_avg
+merchandised_x_chain_segment_avg
+pockets_x_store_prior_avg
+facings_x_chain_segment_avg
+store_chain_subsegment_tail_signal
+embedding_p90_over_store_subsegment_avg
+embedding_p90_over_chain_segment_avg
+embedding_p90_x_store_subsegment_avg
+embedding_p90_x_chain_segment_avg
+embedding_tail_confidence
+embedding_tail_uncertainty_confidence
+embedding_tail_context_signal
+embedding_tail_context_confidence
+age_19_and_under
+age_20_to_29
+age_30_to_44
+age_45_to_59
+age_60_and_over
+male
+female
+two_or_more_races
+less_than_10k
+between_10k_and_14k
+between_15k_and_24k
+between_25k_and_34k
+between_35k_and_49k
+between_50k_and_74k
+between_75k_and_99k
+between_100k_and_149k
+between_150k_and_199k
+income_200k_or_more
+less_than_9th_grade
+between_9th_and_12th_grade_no_diploma
+high_school_graduate_includes_equivalency
+some_college_no_degree
+associates_degree
+bachelors_degree
+graduate_or_professional_degree
+population
+household_type_married_couple_household
+household_type_cohabiting_couple_household
+household_type_male_householder_no_spouse_partner_present
+household_type_female_householder_no_spouse_partner_present
+family_household
+non_family_household
+```
+
+## Original Source Fields
+
+These are the raw/source fields exported before model-specific feature engineering. The positive-only and all-row datasets differ only by row filter and target label semantics.
+
+ID and target/control fields:
+
+```text
+store_id
+product_id
+onsaledate
+offsaledate
+split
+sales_target
+soldqty_raw
+drawqty
+positive_sale_flag
+negative_sales_flag
+stockout_proxy_flag
+```
+
+Categorical source fields:
+
+```text
+title
+store_id
+onsale_month_cat
+segment
+subsegment
+frequency
+store_chain
+region
+classoftrade
+```
+
+Direct numeric source fields:
+
+```text
+price
+issue_length_days
+onsale_month
+onsale_week
+onsale_dow
+merchandised
+facings
+pockets
+```
+
+Demographic source fields:
+
+```text
+age_19_and_under
+age_20_to_29
+age_30_to_44
+age_45_to_59
+age_60_and_over
+male
+female
+two_or_more_races
+less_than_10k
+between_10k_and_14k
+between_15k_and_24k
+between_25k_and_34k
+between_35k_and_49k
+between_50k_and_74k
+between_75k_and_99k
+between_100k_and_149k
+between_150k_and_199k
+income_200k_or_more
+less_than_9th_grade
+between_9th_and_12th_grade_no_diploma
+high_school_graduate_includes_equivalency
+some_college_no_degree
+associates_degree
+bachelors_degree
+graduate_or_professional_degree
+population
+household_type_married_couple_household
+household_type_cohabiting_couple_household
+household_type_male_householder_no_spouse_partner_present
+household_type_female_householder_no_spouse_partner_present
+family_household
+non_family_household
+```
+
+## Derived Feature Methodology
+
+Completed priors are leakage-safe: historical products only contribute when their `offsaledate` is strictly before the current product `onsaledate`.
+
+Derived feature families:
+
+- Base completed priors: global, chain, class, store, store-title, store-segment, store-subsegment, store-type, chain-segment, chain-class-subsegment, chain-title, class-subsegment, class-title, title, segment, subsegment. Each emits positive rate, positive average sales, and observation count.
+- Window priors: 90, 180, and 365 day completed-history windows for global, store, store-segment, store-subsegment, chain-segment, chain-class-subsegment, and class-subsegment contexts.
+- Recency priors: 180-day half-life completed-history priors for the same window contexts.
+- Month priors: global-month, segment-month, subsegment-month, store-subsegment-month, and chain-segment-month.
+- Embedding analog features: k=10 nearest product analogs, weighted positive-sales summaries, weighted positive rate, p50/p75/p90, p90-minus-p50, p90-over-average, subsegment priors, and shrunk analog versions.
+- Embedding affinity features: product embedding compared to completed-history high-tail and low-sale centroids across global, store, store-segment, store-subsegment, store-title, chain-title, class-title, chain-segment, chain-class-subsegment, class-subsegment, chain, class, segment, and subsegment contexts.
+- Affinity derived features: tail signal crossed with analog p90 and context prior average, confidence, tail average over prior average, tail average minus low average, and log tail observations.
+- Capacity/interactions: display capacity, merchandised display capacity, log prior observations, prior average/rate ratios, display and pocket/facing interactions, store-chain-subsegment tail signal, and embedding p90/prior interaction features.
+- Demographics: postal-code demographic proportions/counts are included in both final effective contracts.
+
+## Reproduction Commands
+
+Run from project root, one command per line:
+
+```text
 python3 new/build_modeling_datasets.py --family Weeklies
 ```
 
+```text
+python3 new/build_incidence_dataset.py --family Weeklies
 ```
-python3 new/train_stage_model.py --family Weeklies --objective asym_curve_log1p --weighting category_xtrade_balance --rounds 500 --early-stopping 45 --skip-folds --max-depth 6 --min-child-weight 25 --eta 0.05 --curve-penalty 0.08 --asym-bottom-over-weight 3.5 --asym-bottom-under-weight 0.35 --asym-top-under-weight 3.5 --asym-top-over-weight 0.6 --asym-under-start-decile 6 --asym-total-ratio-penalty 0.0 --stockout-under-weight 1.0 --stockout-over-weight 1.0
-```
-
-```
-python3 new/train_tail_layer.py --family Weeklies --base-run-dir new/output/model_runs/weeklies/regressor_positive/asym_curve_log1p/20260517_000228 --tail-quantile 0.70 --rounds 350 --early-stopping 30 --multiplier-mode rank --calibration-group-cols '' --alpha-grid 1.8,2.0,2.2,2.4,2.6,2.8,3.0 --scale-grid 0.45,0.475,0.50,0.525,0.55,0.575,0.60
-```
-
-
-## Objective
-
-The model is trained only on positive-sale rows for Weeklies. Zero/negative/other-sale incidence is intentionally deferred to a later classifier. The current target is a positive-row sales regressor optimized for decile shape:
-
-- D1-D4: overprediction is expensive.
-- D7-D10: underprediction is expensive.
-- D5-D6: calibration/stability zone.
-- Total predicted/actual unit ratio should stay near 1.0.
-
-The run-ranking metric used for selection was:
 
 ```text
-score =
-  2.0 * mean(max(bottom_D1_D4_ratio - 1, 0))
-+ 2.5 * mean(max(1 - top_D7_D10_ratio, 0))
-+ 0.8 * abs(total_ratio - 1)
-+ 0.5 * WAPE
+python3 new/train_stage_model.py --family Weeklies --stage regressor_positive --objective asym_curve_log1p --weighting category_xtrade_balance --rounds 450 --early-stopping 45 --max-depth 7 --min-child-weight 10 --eta 0.04 --curve-penalty 0.35 --asym-bottom-over-weight 12.0 --asym-bottom-under-weight 0.10 --asym-middle-weight 1.0 --asym-top-under-weight 4.0 --asym-top-over-weight 0.40 --asym-under-start-decile 7 --asym-total-ratio-penalty 0.75 --asym-d7-d8-under-weight 14.0 --asym-d7-d8-over-weight 0.30 --asym-d9-d10-under-weight 3.0 --asym-d9-d10-over-weight 1.5 --stockout-under-weight 3.0 --stockout-over-weight 0.5 --skip-folds
 ```
-
-## Best Current Run
-
-Best current production candidate by the composite decile score:
 
 ```text
-new/output/tail_layer_runs/weeklies/regressor_positive/tail_q70/20260517_005103
+python3 new/train_tail_layer.py --family Weeklies --base-run-dir new/output/model_runs/weeklies/regressor_positive/asym_curve_log1p/20260517_205934 --tail-quantile 0.70 --rounds 350 --early-stopping 30 --enable-low-layer --low-target-max 1.0 --low-alpha-grid 0,0.8,1.2,1.6,2.0 --multiplier-mode rank --selection-metric composite --alpha-grid 2.0,2.4,2.8,3.2 --scale-grid 0.45,0.50,0.55,0.60,0.65
 ```
-
-This run uses:
-
-- Base regressor: `new/output/model_runs/weeklies/regressor_positive/asym_curve_log1p/20260517_000228`
-- Tail classifier target: top 30 percent of positive rows (`tail_quantile=0.70`)
-- Multiplier mode: rank-based tail probability
-- Calibration: global only, no group calibration
-- Selected multiplier: `alpha=2.4`, `scale=0.50`
-
-No `title,classoftrade` group calibration is used in the best run. Group-aware calibration improved validation but overfit and hurt test-period shape.
-
-## Test Decile Results
-
-Predicted/actual unit ratio by actual sales decile:
-
-| Decile | Previous Base `20260517_000228` | Best Tail Run `20260517_005103` |
-|---:|---:|---:|
-| D1 | 2.219 | 1.230 |
-| D2 | 2.137 | 1.110 |
-| D3 | 2.159 | 1.134 |
-| D4 | 1.781 | 0.953 |
-| D5 | 1.300 | 0.913 |
-| D6 | 1.149 | 0.798 |
-| D7 | 0.953 | 0.743 |
-| D8 | 0.924 | 0.847 |
-| D9 | 0.955 | 1.118 |
-| D10 | 0.837 | 1.207 |
-| Total | 1.078 | 1.053 |
-
-Metric comparison:
-
-| Metric | Previous Base | Best Tail Run |
-|---|---:|---:|
-| Composite decile score | 2.6626 | 0.8787 |
-| WAPE | 0.4901 | 0.6873 |
-| Total predicted/actual units | 1.0779 | 1.0528 |
-
-The improvement is not WAPE-driven. WAPE worsens because the selection metric deliberately prioritizes decile shape and business asymmetry over average absolute unit error.
-
-## What Improved
-
-The main win is bottom-decile suppression without starving the extreme top:
-
-- D1 reduced from `2.219x` to `1.230x`.
-- D2 reduced from `2.137x` to `1.110x`.
-- D3 reduced from `2.159x` to `1.134x`.
-- D4 reduced from `1.781x` to `0.953x`.
-- D10 increased from `0.837x` to `1.207x`.
-- Total unit ratio moved from `1.0779` to `1.0528`.
-- Composite decile score improved from `2.6626` to `0.8787`.
-
-The remaining issue is shape within the upper tail:
-
-- D7 remains underpredicted at `0.743x`.
-- D8 remains underpredicted at `0.847x`.
-- D9 and D10 are overpredicted at `1.118x` and `1.207x`.
-
-This means the tail signal is useful, but still too sharp: it moves units from the bottom into the highest tail more successfully than into the D7-D8 band.
-
-## Dataset Changes
-
-The Weeklies positive-only modeling dataset was rebuilt after adding completed-only prior and embedding-affinity features.
-
-Dataset after rebuild:
-
-- Rows: `2,060,572`
-- Numeric features in contract: `552`
-- Affinity / affinity-derived numeric features: `182`
-
-Output artifacts:
 
 ```text
-new/output/modeling_datasets/weeklies/regressor_positive.parquet
-new/output/modeling_datasets/weeklies/feature_contract_regressor_positive.json
-new/output/modeling_datasets/weeklies/manifest_regressor_positive.json
-new/output/modeling_datasets/weeklies/embedding_pca_regressor_positive.json
+python3 new/train_incidence_classifier.py --family Weeklies --rounds 500 --early-stopping 40 --max-depth 6 --min-child-weight 50 --eta 0.05 --subsample 0.85 --colsample-bytree 0.85
 ```
-
-## Completed-Only Prior Feature Families
-
-The dataset builder now includes completed-history priors with strict leakage control:
 
 ```text
-historical product offsaledate must be strictly before current row onsaledate
+python3 new/calibrate_incidence_classifier.py --family Weeklies --classifier-run-dir new/output/model_runs/weeklies/classifier_all/binary_logistic/20260517_211136 --target-overprediction 1.20 --group-shrinkage 25000 --group-min-rows 5000 --probability-bins 10
 ```
-
-Base completed-prior contexts:
-
-- `global`
-- `chain`
-- `class`
-- `store`
-- `store_title`
-- `store_segment`
-- `store_subsegment`
-- `store_type`
-- `chain_segment`
-- `chain_class_subsegment`
-- `chain_title`
-- `class_subsegment`
-- `class_title`
-- `title`
-- `segment`
-- `subsegment`
-
-Windowed completed-prior contexts:
-
-- Windows: `90`, `180`, `365` days
-- Contexts: `global`, `store`, `store_segment`, `store_subsegment`, `chain_segment`, `chain_class_subsegment`, `class_subsegment`
-
-Recency-weighted completed-prior contexts:
-
-- Half-life: `180` days
-- Contexts: same as windowed priors
-
-Month / season prior contexts:
-
-- `global_month`
-- `segment_month`
-- `subsegment_month`
-- `store_subsegment_month`
-- `chain_segment_month`
-
-Each prior family emits positive rate, positive average sales, and observation count features.
-
-## Embedding Analog Features
-
-The pre-existing product embedding analog family remains active:
-
-- Product-level nearest-neighbor analogs within the same family.
-- Neighbor count and effective neighbor count.
-- Similarity-weighted positive sales statistics.
-- Similarity-weighted positive sale rate.
-- Weighted p50, p75, p90 positive sales.
-- Shrunk analog statistics using same-subsegment and family priors.
-
-These analog features are useful, but by themselves they did not solve the store/channel tail problem. They became more useful when crossed with context affinity and completed priors.
-
-## Embedding Affinity Feature Families
-
-The new affinity system converts product embeddings into store/channel/context tail evidence.
-
-Affinity construction:
-
-- PCA product embeddings are fit on training-split products only.
-- First `32` PCA components are used for affinity.
-- Current row product vector is compared against completed-history centroids.
-- Tail centroid threshold: train positive target p80.
-- Low centroid threshold: train positive target p30.
-- Historical rows only count if `offsaledate < current onsaledate`.
-
-Affinity contexts:
-
-- `global_affinity`
-- `store_affinity`
-- `store_segment_affinity`
-- `store_subsegment_affinity`
-- `store_title_affinity`
-- `chain_title_affinity`
-- `class_title_affinity`
-- `chain_segment_affinity`
-- `chain_class_subsegment_affinity`
-- `class_subsegment_affinity`
-- `chain_affinity`
-- `class_affinity`
-- `segment_affinity`
-- `subsegment_affinity`
-
-For each context, base affinity features:
-
-- `*_tail_similarity`
-- `*_low_similarity`
-- `*_tail_minus_low_similarity`
-- `*_tail_obs`
-- `*_low_obs`
-- `*_tail_avg_sales`
-- `*_low_avg_sales`
-
-For each context, derived affinity features:
-
-- `*_tail_signal_x_analog_p90`
-- `*_tail_signal_x_prior_avg`
-- `*_tail_confidence`
-- `*_tail_avg_over_prior_avg`
-- `*_tail_avg_minus_low_avg`
-- `*_tail_obs_log`
-
-These features are the direct implementation of:
-
-- Store embedding affinity.
-- Contextual analog priors.
-- Tail centroid similarity.
-- Retrieval-style row analog signal through product similarity plus store/channel context.
-
-## Training Changes
-
-The regressor objective was updated to support stronger asymmetric decile pressure:
-
-- Stronger bottom-overprediction penalty.
-- Stronger top-underprediction penalty.
-- Configurable top-under start decile.
-- Total unit ratio penalty support.
-- Stockout-aware gradient weighting support.
-- Composite decile score written into run summaries.
-- Configurable XGBoost depth, child weight, eta, subsample, and colsample.
-
-The best base run still came from the older calibrated asymmetric run:
 
 ```text
-new/output/model_runs/weeklies/regressor_positive/asym_curve_log1p/20260517_000228
+python3 new/evaluate_incidence_pipeline.py --family Weeklies --base-run-dir new/output/model_runs/weeklies/regressor_positive/asym_curve_log1p/20260517_205934 --tail-run-dir new/output/tail_layer_runs/weeklies/regressor_positive/tail_q70/20260517_210107 --calibration-run-dir new/output/model_runs/weeklies/classifier_all/calibration/20260517_213616
 ```
-
-The affinity-enhanced base regressor was tested:
-
-```text
-new/output/model_runs/weeklies/regressor_positive/asym_curve_log1p/20260517_003518
-```
-
-It did not improve the base-regressor result. Test composite worsened to `2.7928`. The conclusion is important: the semantic affinity features are better used for tail ranking/calibration than as direct unit regressors in the base model.
-
-## Tail-Layer Process
-
-The winning process:
-
-1. Keep the old better-calibrated base regressor.
-2. Train a positive-only tail classifier on the rebuilt feature set.
-3. Target high-positive sales within positive rows, not positive-vs-zero incidence.
-4. Use rank of tail probability as a monotonic multiplier signal.
-5. Select multiplier by the composite decile metric on validation.
-6. Avoid group-aware title/class calibration because it overfits.
-
-Winning tail command shape:
-
-```text
-python3 new/train_tail_layer.py --family Weeklies --base-run-dir new/output/model_runs/weeklies/regressor_positive/asym_curve_log1p/20260517_000228 --tail-quantile 0.70 --rounds 350 --early-stopping 30 --multiplier-mode rank --calibration-group-cols '' --alpha-grid 1.8,2.0,2.2,2.4,2.6,2.8,3.0 --scale-grid 0.45,0.475,0.50,0.525,0.55,0.575,0.60
-```
-
-The selected validation multiplier was:
-
-```text
-alpha=2.4
-scale=0.50
-```
-
-## Feature Importance Evidence
-
-The tail classifier uses the new affinity features. High-gain affinity features included:
-
-- `chain_class_subsegment_affinity_tail_avg_over_prior_avg`
-- `store_title_affinity_tail_avg_sales`
-- `store_title_affinity_tail_avg_over_prior_avg`
-- `class_title_affinity_tail_obs`
-- `store_segment_affinity_tail_avg_sales`
-- `store_subsegment_affinity_tail_obs_log`
-- `class_subsegment_affinity_tail_avg_over_prior_avg`
-- `store_affinity_tail_confidence`
-- `store_subsegment_affinity_tail_signal_x_analog_p90`
-
-This confirms the feature set is not dead weight. The tail classifier is using store/title/channel affinity to rank high-positive rows.
-
-## Negative Findings
-
-The following did not become the winning approach:
-
-- Affinity-enhanced base regressor alone.
-- q60 tail classifier with group calibration.
-- q70 tail classifier with `title,classoftrade` group calibration.
-- Joint calibration table by base-prediction rank and tail-probability rank.
-- Saturating/capping tail rank signal.
-- Blending tail-probability rank with base-prediction rank.
-
-The consistent failure mode of group and table calibration was validation overfit and weaker test shape.
-
-## Current Recommendation
-
-Keep the best current artifact as the Weeklies positive-only production candidate:
-
-```text
-new/output/tail_layer_runs/weeklies/regressor_positive/tail_q70/20260517_005103
-```
-
-Treat it as a real improvement over the base, but not final-final:
-
-- It fixes most bottom overprediction.
-- It fixes D10 starvation.
-- It still underpredicts D7-D8.
-
-The next modeling target should be a stricter selection metric that penalizes worst-case D7-D10 underprediction, not only mean D7-D10 underprediction. The current metric can allow D9-D10 overprediction to hide D7-D8 weakness.
-

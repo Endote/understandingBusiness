@@ -119,6 +119,10 @@ DEFAULT_ASYM_TOP_UNDER_WEIGHT = 5.0
 DEFAULT_ASYM_TOP_OVER_WEIGHT = 0.5
 DEFAULT_ASYM_UNDER_START_DECILE = 7
 DEFAULT_ASYM_TOTAL_RATIO_PENALTY = 0.35
+DEFAULT_ASYM_D7_D8_UNDER_WEIGHT = 0.0
+DEFAULT_ASYM_D7_D8_OVER_WEIGHT = 0.0
+DEFAULT_ASYM_D9_D10_UNDER_WEIGHT = 0.0
+DEFAULT_ASYM_D9_D10_OVER_WEIGHT = 0.0
 DEFAULT_STOCKOUT_UNDER_WEIGHT = 2.5
 DEFAULT_STOCKOUT_OVER_WEIGHT = 0.6
 CURVE_LOG_PRED_MIN = -10.0
@@ -191,6 +195,10 @@ class CurveObjectiveConfig:
     asym_top_over_weight: float = DEFAULT_ASYM_TOP_OVER_WEIGHT
     asym_under_start_decile: int = DEFAULT_ASYM_UNDER_START_DECILE
     asym_total_ratio_penalty: float = DEFAULT_ASYM_TOTAL_RATIO_PENALTY
+    asym_d7_d8_under_weight: float = DEFAULT_ASYM_D7_D8_UNDER_WEIGHT
+    asym_d7_d8_over_weight: float = DEFAULT_ASYM_D7_D8_OVER_WEIGHT
+    asym_d9_d10_under_weight: float = DEFAULT_ASYM_D9_D10_UNDER_WEIGHT
+    asym_d9_d10_over_weight: float = DEFAULT_ASYM_D9_D10_OVER_WEIGHT
     stockout_under_weight: float = DEFAULT_STOCKOUT_UNDER_WEIGHT
     stockout_over_weight: float = DEFAULT_STOCKOUT_OVER_WEIGHT
     deciles: int = CURVE_DECILES
@@ -212,6 +220,16 @@ class CurveObjectiveConfig:
         weights[bottom & ~over_prediction] = self.asym_bottom_under_weight
         weights[under_target & ~over_prediction] = self.asym_top_under_weight
         weights[under_target & over_prediction] = self.asym_top_over_weight
+        d7_d8 = (np.arange(self.deciles) >= 6) & (np.arange(self.deciles) <= 7)
+        d9_d10 = np.arange(self.deciles) >= 8
+        if self.asym_d7_d8_under_weight > 0:
+            weights[d7_d8 & ~over_prediction] = self.asym_d7_d8_under_weight
+        if self.asym_d7_d8_over_weight > 0:
+            weights[d7_d8 & over_prediction] = self.asym_d7_d8_over_weight
+        if self.asym_d9_d10_under_weight > 0:
+            weights[d9_d10 & ~over_prediction] = self.asym_d9_d10_under_weight
+        if self.asym_d9_d10_over_weight > 0:
+            weights[d9_d10 & over_prediction] = self.asym_d9_d10_over_weight
         return weights
 
     def to_dict(self) -> dict[str, object]:
@@ -227,6 +245,10 @@ class CurveObjectiveConfig:
             "asym_top_over_weight": self.asym_top_over_weight,
             "asym_under_start_decile": self.asym_under_start_decile,
             "asym_total_ratio_penalty": self.asym_total_ratio_penalty,
+            "asym_d7_d8_under_weight": self.asym_d7_d8_under_weight,
+            "asym_d7_d8_over_weight": self.asym_d7_d8_over_weight,
+            "asym_d9_d10_under_weight": self.asym_d9_d10_under_weight,
+            "asym_d9_d10_over_weight": self.asym_d9_d10_over_weight,
             "stockout_under_weight": self.stockout_under_weight,
             "stockout_over_weight": self.stockout_over_weight,
             "deciles": self.deciles,
@@ -640,10 +662,20 @@ def row_asymmetric_decile_weights(decile_id: np.ndarray, row_error: np.ndarray, 
     over_prediction = row_error >= 0.0
     bottom = decile_id < min(4, config.deciles)
     under_target = decile_id >= min(max(config.asym_under_start_decile - 1, 0), config.deciles - 1)
+    d7_d8 = (decile_id >= 6) & (decile_id <= 7)
+    d9_d10 = decile_id >= 8
     weights[bottom & over_prediction] = config.asym_bottom_over_weight
     weights[bottom & ~over_prediction] = config.asym_bottom_under_weight
     weights[under_target & ~over_prediction] = config.asym_top_under_weight
     weights[under_target & over_prediction] = config.asym_top_over_weight
+    if config.asym_d7_d8_under_weight > 0:
+        weights[d7_d8 & ~over_prediction] = config.asym_d7_d8_under_weight
+    if config.asym_d7_d8_over_weight > 0:
+        weights[d7_d8 & over_prediction] = config.asym_d7_d8_over_weight
+    if config.asym_d9_d10_under_weight > 0:
+        weights[d9_d10 & ~over_prediction] = config.asym_d9_d10_under_weight
+    if config.asym_d9_d10_over_weight > 0:
+        weights[d9_d10 & over_prediction] = config.asym_d9_d10_over_weight
     return weights
 
 
@@ -1277,6 +1309,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--asym-top-over-weight", type=float, default=DEFAULT_ASYM_TOP_OVER_WEIGHT)
     parser.add_argument("--asym-under-start-decile", type=int, default=DEFAULT_ASYM_UNDER_START_DECILE)
     parser.add_argument("--asym-total-ratio-penalty", type=float, default=DEFAULT_ASYM_TOTAL_RATIO_PENALTY)
+    parser.add_argument("--asym-d7-d8-under-weight", type=float, default=DEFAULT_ASYM_D7_D8_UNDER_WEIGHT)
+    parser.add_argument("--asym-d7-d8-over-weight", type=float, default=DEFAULT_ASYM_D7_D8_OVER_WEIGHT)
+    parser.add_argument("--asym-d9-d10-under-weight", type=float, default=DEFAULT_ASYM_D9_D10_UNDER_WEIGHT)
+    parser.add_argument("--asym-d9-d10-over-weight", type=float, default=DEFAULT_ASYM_D9_D10_OVER_WEIGHT)
     parser.add_argument("--stockout-under-weight", type=float, default=DEFAULT_STOCKOUT_UNDER_WEIGHT)
     parser.add_argument("--stockout-over-weight", type=float, default=DEFAULT_STOCKOUT_OVER_WEIGHT)
     parser.add_argument("--skip-folds", action="store_true")
@@ -1297,6 +1333,10 @@ def main() -> int:
         asym_top_over_weight=args.asym_top_over_weight,
         asym_under_start_decile=args.asym_under_start_decile,
         asym_total_ratio_penalty=args.asym_total_ratio_penalty,
+        asym_d7_d8_under_weight=args.asym_d7_d8_under_weight,
+        asym_d7_d8_over_weight=args.asym_d7_d8_over_weight,
+        asym_d9_d10_under_weight=args.asym_d9_d10_under_weight,
+        asym_d9_d10_over_weight=args.asym_d9_d10_over_weight,
         stockout_under_weight=args.stockout_under_weight,
         stockout_over_weight=args.stockout_over_weight,
     )

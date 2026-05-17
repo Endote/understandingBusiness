@@ -1,0 +1,52 @@
+{
+  "created_at": "2026-05-17T17:13:30",
+  "family": "Weeklies",
+  "base_run_dir": "new/output/model_runs/weeklies/regressor_positive/asym_curve_log1p/20260517_000228",
+  "tail_run_dir": "new/output/tail_layer_runs/weeklies/regressor_positive/tail_q70/20260517_005103",
+  "calibration_run_dir": "new/output/model_runs/weeklies/classifier_all/calibration/20260517_151316",
+  "selected_variant_by_validation_score": "E_gate_calibrated_threshold_0.60",
+  "validation_selected_summary": {
+    "score": 1.8848195439577102,
+    "wape": 0.6355342864990234,
+    "total_unit_ratio": 1.2293121814727783,
+    "total_unit_ratio_gap": 0.22931218147277832,
+    "zero_predicted_sum": 0.0,
+    "zero_leak_ratio": 0.0,
+    "bottom_positive_d1_d4_overprediction": 0.46266210079193115,
+    "bottom_positive_d1_d4_under_below_65": 0.0,
+    "positive_d7_d8_underprediction": 0.028012603521347046,
+    "top_positive_d7_d10_underprediction": 0.014006301760673523,
+    "positive_d9_d10_overprediction_above_120": 0.09953509569168095,
+    "actual_sum": 1281645.0,
+    "predicted_sum": 1575541.875,
+    "formula": "2*bottom_over + 0.8*bottom_under_below_65 + 6*d7d8_under + 3*top_under + 1.2*d9d10_over_120 + 1.5*zero_leak + 1.5*abs(total_ratio-1) + 0.45*WAPE",
+    "split": "valid",
+    "variant": "ORACLE_actual_positive_gate"
+  },
+  "test_selected_summary": {
+    "score": 2.8520547513773535,
+    "wape": 1.188934326171875,
+    "total_unit_ratio": 1.5580148696899414,
+    "total_unit_ratio_gap": 0.5580148696899414,
+    "zero_predicted_sum": 448990.9375,
+    "zero_leak_ratio": 0.38183430225388837,
+    "bottom_positive_d1_d4_overprediction": 0.16038984060287476,
+    "bottom_positive_d1_d4_under_below_65": 0.0,
+    "positive_d7_d8_underprediction": 0.060976505279541016,
+    "top_positive_d7_d10_underprediction": 0.030488252639770508,
+    "positive_d9_d10_overprediction_above_120": 0.10763089656829838,
+    "actual_sum": 1175879.0,
+    "predicted_sum": 1832037.0,
+    "formula": "2*bottom_over + 0.8*bottom_under_below_65 + 6*d7d8_under + 3*top_under + 1.2*d9d10_over_120 + 1.5*zero_leak + 1.5*abs(total_ratio-1) + 0.45*WAPE",
+    "split": "test",
+    "variant": "E_gate_calibrated_threshold_0.60"
+  },
+  "base_objective": "asym_curve_log1p",
+  "tail_multiplier": {
+    "alpha": 2.4,
+    "scale": 0.5,
+    "validation_curve_score": 2.625299439075831,
+    "validation_composite_decile_score": 0.7324918568134308
+  },
+  "scoring_formula": "2*bottom_over + 0.8*bottom_under_below_65 + 6*d7d8_under + 3*top_under + 1.2*d9d10_over_120 + 1.5*zero_leak + 1.5*abs(total_ratio-1) + 0.45*WAPE"
+}
