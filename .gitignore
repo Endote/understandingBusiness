@@ -6,4 +6,3 @@
 *.parquet
 # large generated data
 *.parquet
-new/output/
