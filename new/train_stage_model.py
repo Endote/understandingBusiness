@@ -87,7 +87,11 @@ CATEGORY_WEIGHTING_SCHEMES = {
     "category_xtrade_tail_balance",
 }
 QUANTILE_OBJECTIVES: dict[str, float] = {
+    "quantile_30": 0.30,
+    "quantile_40": 0.40,
     "quantile_50": 0.50,
+    "quantile_60": 0.60,
+    "quantile_70": 0.70,
     "quantile_80": 0.80,
     "quantile_90": 0.90,
 }
@@ -108,11 +112,15 @@ DEFAULT_CURVE_PENALTY = 0.15
 DEFAULT_CURVE_BOTTOM_WEIGHT = 1.5
 DEFAULT_CURVE_MIDDLE_WEIGHT = 1.0
 DEFAULT_CURVE_TOP_WEIGHT = 2.0
-DEFAULT_ASYM_BOTTOM_OVER_WEIGHT = 3.0
-DEFAULT_ASYM_BOTTOM_UNDER_WEIGHT = 0.35
+DEFAULT_ASYM_BOTTOM_OVER_WEIGHT = 5.0
+DEFAULT_ASYM_BOTTOM_UNDER_WEIGHT = 0.25
 DEFAULT_ASYM_MIDDLE_WEIGHT = 1.0
-DEFAULT_ASYM_TOP_UNDER_WEIGHT = 3.0
-DEFAULT_ASYM_TOP_OVER_WEIGHT = 0.6
+DEFAULT_ASYM_TOP_UNDER_WEIGHT = 5.0
+DEFAULT_ASYM_TOP_OVER_WEIGHT = 0.5
+DEFAULT_ASYM_UNDER_START_DECILE = 7
+DEFAULT_ASYM_TOTAL_RATIO_PENALTY = 0.35
+DEFAULT_STOCKOUT_UNDER_WEIGHT = 2.5
+DEFAULT_STOCKOUT_OVER_WEIGHT = 0.6
 CURVE_LOG_PRED_MIN = -10.0
 CURVE_LOG_PRED_MAX = 10.0
 
@@ -134,6 +142,8 @@ COMMON_DROPPED_FEATURES: list[str] = [
     "negative_sales_flag",
     "stockout_proxy_flag",
     "split",
+    "onsale_week",
+    "offsale_week",
 ]
 
 FAMILY_DROPPED_FEATURES: dict[str, list[str]] = {
@@ -179,6 +189,10 @@ class CurveObjectiveConfig:
     asym_middle_weight: float = DEFAULT_ASYM_MIDDLE_WEIGHT
     asym_top_under_weight: float = DEFAULT_ASYM_TOP_UNDER_WEIGHT
     asym_top_over_weight: float = DEFAULT_ASYM_TOP_OVER_WEIGHT
+    asym_under_start_decile: int = DEFAULT_ASYM_UNDER_START_DECILE
+    asym_total_ratio_penalty: float = DEFAULT_ASYM_TOTAL_RATIO_PENALTY
+    stockout_under_weight: float = DEFAULT_STOCKOUT_UNDER_WEIGHT
+    stockout_over_weight: float = DEFAULT_STOCKOUT_OVER_WEIGHT
     deciles: int = CURVE_DECILES
 
     def decile_weights(self) -> np.ndarray:
@@ -193,11 +207,11 @@ class CurveObjectiveConfig:
         weights = np.full(self.deciles, self.asym_middle_weight, dtype=np.float64)
         over_prediction = log_ratio >= 0.0
         bottom = np.arange(self.deciles) < min(4, self.deciles)
-        top = np.arange(self.deciles) >= max(0, self.deciles - 2)
+        under_target = np.arange(self.deciles) >= min(max(self.asym_under_start_decile - 1, 0), self.deciles - 1)
         weights[bottom & over_prediction] = self.asym_bottom_over_weight
         weights[bottom & ~over_prediction] = self.asym_bottom_under_weight
-        weights[top & ~over_prediction] = self.asym_top_under_weight
-        weights[top & over_prediction] = self.asym_top_over_weight
+        weights[under_target & ~over_prediction] = self.asym_top_under_weight
+        weights[under_target & over_prediction] = self.asym_top_over_weight
         return weights
 
     def to_dict(self) -> dict[str, object]:
@@ -211,6 +225,10 @@ class CurveObjectiveConfig:
             "asym_middle_weight": self.asym_middle_weight,
             "asym_top_under_weight": self.asym_top_under_weight,
             "asym_top_over_weight": self.asym_top_over_weight,
+            "asym_under_start_decile": self.asym_under_start_decile,
+            "asym_total_ratio_penalty": self.asym_total_ratio_penalty,
+            "stockout_under_weight": self.stockout_under_weight,
+            "stockout_over_weight": self.stockout_over_weight,
             "deciles": self.deciles,
             "prediction_log_clip_min": CURVE_LOG_PRED_MIN,
             "prediction_log_clip_max": CURVE_LOG_PRED_MAX,
@@ -249,6 +267,35 @@ def metric_row(y_true: np.ndarray, y_pred: np.ndarray, label: str) -> dict[str, 
         "mae": float(mean_absolute_error(y_true, y_pred)) if len(y_true) else math.nan,
         "rmse": float(np.sqrt(mean_squared_error(y_true, y_pred))) if len(y_true) else math.nan,
         "wape": safe_wape(y_true, y_pred),
+    }
+
+
+def composite_decile_score(frame: pd.DataFrame, prediction_col: str) -> dict[str, object]:
+    deciles = actual_decile_metrics(frame, prediction_col).sort_values("actual_decile")
+    ratios = deciles["unit_ratio_pred_over_actual"].to_numpy(dtype=np.float64)
+    bottom = ratios[: min(4, len(ratios))]
+    top = ratios[6:] if len(ratios) > 6 else np.array([], dtype=np.float64)
+    y_true = frame["sales_target"].to_numpy(dtype=np.float32)
+    y_pred = frame[prediction_col].to_numpy(dtype=np.float32)
+    total_ratio = unit_ratio(y_true, y_pred)
+    wape = safe_wape(y_true, y_pred)
+    bottom_over = float(np.maximum(bottom - 1.0, 0.0).mean()) if len(bottom) else math.nan
+    top_under = float(np.maximum(1.0 - top, 0.0).mean()) if len(top) else math.nan
+    total_gap = abs(float(total_ratio) - 1.0) if not math.isnan(total_ratio) else math.nan
+    score = (
+        2.0 * (bottom_over if not math.isnan(bottom_over) else 0.0)
+        + 2.5 * (top_under if not math.isnan(top_under) else 0.0)
+        + 0.8 * (total_gap if not math.isnan(total_gap) else 0.0)
+        + 0.5 * (wape if not math.isnan(wape) else 0.0)
+    )
+    return {
+        "score": float(score),
+        "bottom_d1_d4_overprediction": bottom_over,
+        "top_d7_d10_underprediction": top_under,
+        "total_unit_ratio_gap": total_gap,
+        "total_unit_ratio": float(total_ratio),
+        "wape": float(wape),
+        "formula": "2.0*mean(max(D1_D4_ratio-1,0)) + 2.5*mean(max(1-D7_D10_ratio,0)) + 0.8*abs(total_ratio-1) + 0.5*WAPE",
     }
 
 
@@ -462,14 +509,23 @@ def artifact_payload(artifact: EncodingArtifact) -> dict[str, object]:
     }
 
 
-def xgb_params(objective: str, seed: int, base_score: float | None = None) -> dict[str, object]:
+def xgb_params(
+    objective: str,
+    seed: int,
+    base_score: float | None = None,
+    max_depth: int = 6,
+    min_child_weight: float = 25.0,
+    eta: float = 0.05,
+    subsample: float = 0.85,
+    colsample_bytree: float = 0.85,
+) -> dict[str, object]:
     base = {
         "tree_method": "hist",
-        "max_depth": 6,
-        "min_child_weight": 25,
-        "eta": 0.05,
-        "subsample": 0.85,
-        "colsample_bytree": 0.85,
+        "max_depth": max_depth,
+        "min_child_weight": min_child_weight,
+        "eta": eta,
+        "subsample": subsample,
+        "colsample_bytree": colsample_bytree,
         "seed": seed,
         "eval_metric": "rmse",
     }
@@ -500,19 +556,50 @@ def inverse_predictions(raw_pred: np.ndarray, objective: str) -> np.ndarray:
     return np.clip(raw_pred, 0.0, None)
 
 
-def curve_decile_cache(labels: np.ndarray, config: CurveObjectiveConfig) -> dict[str, np.ndarray]:
+def best_iteration_end(booster: xgb.Booster) -> int:
+    best_iteration = getattr(booster, "best_iteration", None)
+    if best_iteration is None:
+        return booster.num_boosted_rounds()
+    return int(best_iteration) + 1
+
+
+def best_iteration_value(booster: xgb.Booster) -> int:
+    best_iteration = getattr(booster, "best_iteration", None)
+    if best_iteration is None:
+        return booster.num_boosted_rounds() - 1
+    return int(best_iteration)
+
+
+def best_score_value(booster: xgb.Booster) -> float:
+    best_score = getattr(booster, "best_score", None)
+    return float(best_score) if best_score is not None else math.nan
+
+
+def curve_decile_cache(
+    labels: np.ndarray,
+    config: CurveObjectiveConfig,
+    stockout_flags: np.ndarray | None = None,
+) -> dict[str, np.ndarray]:
     actual_units = np.clip(np.expm1(labels.astype(np.float64)), 0.0, None).astype(np.float32)
     row_count = len(actual_units)
     if row_count == 0:
         empty_float = np.array([], dtype=np.float32)
         empty_int = np.array([], dtype=np.int32)
+        empty_bool = np.array([], dtype=bool)
         return {
             "actual_units": empty_float,
             "decile_id": empty_int,
             "actual_sums": empty_float,
             "counts": empty_float,
             "decile_weights": empty_float,
+            "stockout_flags": empty_bool,
         }
+    if stockout_flags is None:
+        stockout_flags = np.zeros(row_count, dtype=bool)
+    else:
+        stockout_flags = np.asarray(stockout_flags, dtype=bool)
+        if len(stockout_flags) != row_count:
+            raise ValueError("Stockout flag length does not match objective labels")
 
     order = np.lexsort((np.arange(row_count), actual_units))
     ranks = np.empty(row_count, dtype=np.int32)
@@ -528,16 +615,73 @@ def curve_decile_cache(labels: np.ndarray, config: CurveObjectiveConfig) -> dict
         "actual_sums": actual_sums,
         "counts": counts,
         "decile_weights": decile_weights,
+        "stockout_flags": stockout_flags,
     }
 
 
-def curve_log1p_objective(config: CurveObjectiveConfig):
+def stockout_adjusted_weights(
+    labels: np.ndarray,
+    raw_clipped: np.ndarray,
+    row_weights: np.ndarray,
+    stockout_flags: np.ndarray,
+    config: CurveObjectiveConfig,
+) -> np.ndarray:
+    weights = row_weights.astype(np.float64).copy()
+    if len(weights) and stockout_flags.any():
+        under_observed_stockout = stockout_flags & (raw_clipped < labels.astype(np.float64))
+        over_observed_stockout = stockout_flags & ~under_observed_stockout
+        weights[under_observed_stockout] *= config.stockout_under_weight
+        weights[over_observed_stockout] *= config.stockout_over_weight
+    return weights
+
+
+def row_asymmetric_decile_weights(decile_id: np.ndarray, row_error: np.ndarray, config: CurveObjectiveConfig) -> np.ndarray:
+    weights = np.full(len(decile_id), config.asym_middle_weight, dtype=np.float64)
+    over_prediction = row_error >= 0.0
+    bottom = decile_id < min(4, config.deciles)
+    under_target = decile_id >= min(max(config.asym_under_start_decile - 1, 0), config.deciles - 1)
+    weights[bottom & over_prediction] = config.asym_bottom_over_weight
+    weights[bottom & ~over_prediction] = config.asym_bottom_under_weight
+    weights[under_target & ~over_prediction] = config.asym_top_under_weight
+    weights[under_target & over_prediction] = config.asym_top_over_weight
+    return weights
+
+
+def add_total_ratio_gradient(
+    grad: np.ndarray,
+    hess: np.ndarray,
+    pred_units: np.ndarray,
+    unit_derivative: np.ndarray,
+    actual_units: np.ndarray,
+    penalty: float,
+) -> tuple[np.ndarray, np.ndarray]:
+    if penalty <= 0 or len(actual_units) == 0:
+        return grad, hess
+    safe_actual = max(float(actual_units.sum()), 1e-6)
+    safe_pred = max(float(pred_units.sum()), 1e-6)
+    total_log_ratio = math.log(safe_pred / safe_actual)
+    scale = 2.0 * penalty * len(actual_units)
+    grad = grad + scale * total_log_ratio * unit_derivative / safe_pred
+    hess = hess + scale * (unit_derivative * unit_derivative) / (safe_pred * safe_pred)
+    return grad, hess
+
+
+def total_ratio_metric_penalty(pred_units: np.ndarray, actual_units: np.ndarray, penalty: float) -> float:
+    if penalty <= 0 or len(actual_units) == 0:
+        return 0.0
+    safe_actual = max(float(actual_units.sum()), 1e-6)
+    safe_pred = max(float(pred_units.sum()), 1e-6)
+    return float(penalty * abs(math.log(safe_pred / safe_actual)))
+
+
+def curve_log1p_objective(config: CurveObjectiveConfig, stockout_flags_by_matrix: dict[int, np.ndarray] | None = None):
     cache_by_matrix: dict[int, dict[str, np.ndarray]] = {}
+    stockout_flags_by_matrix = stockout_flags_by_matrix or {}
 
     def objective(raw_pred: np.ndarray, dmatrix: xgb.DMatrix) -> tuple[np.ndarray, np.ndarray]:
         key = id(dmatrix)
         if key not in cache_by_matrix:
-            cache_by_matrix[key] = curve_decile_cache(dmatrix.get_label(), config)
+            cache_by_matrix[key] = curve_decile_cache(dmatrix.get_label(), config, stockout_flags_by_matrix.get(key))
         cache = cache_by_matrix[key]
         labels = dmatrix.get_label().astype(np.float32)
         row_weights = dmatrix.get_weight()
@@ -547,8 +691,9 @@ def curve_log1p_objective(config: CurveObjectiveConfig):
         pred_units = np.expm1(raw_clipped)
         unit_derivative = np.exp(raw_clipped)
 
-        grad = row_weights.astype(np.float64) * (raw_clipped - labels)
-        hess = row_weights.astype(np.float64)
+        adjusted_weights = stockout_adjusted_weights(labels, raw_clipped, row_weights, cache["stockout_flags"], config)
+        grad = adjusted_weights * (raw_clipped - labels)
+        hess = adjusted_weights
 
         if config.penalty > 0 and len(labels):
             decile_id = cache["decile_id"]
@@ -563,6 +708,14 @@ def curve_log1p_objective(config: CurveObjectiveConfig):
             decile_hess = scale * (unit_derivative * unit_derivative) / (safe_actual[decile_id] * safe_actual[decile_id])
             grad += decile_grad
             hess += decile_hess
+        grad, hess = add_total_ratio_gradient(
+            grad,
+            hess,
+            pred_units,
+            unit_derivative,
+            cache["actual_units"].astype(np.float64),
+            config.asym_total_ratio_penalty,
+        )
 
         hess = np.maximum(hess, 1e-6)
         return grad.astype(np.float32), hess.astype(np.float32)
@@ -591,18 +744,20 @@ def curve_log1p_metric(config: CurveObjectiveConfig):
         safe_actual = np.maximum(actual_sums, 1e-6)
         ratio_abs_error = np.abs((pred_sums / safe_actual) - 1.0)
         weighted_curve_error = float(np.average(ratio_abs_error, weights=decile_weights))
-        return "curve_log1p_score", log_rmse + config.penalty * weighted_curve_error
+        total_penalty = total_ratio_metric_penalty(pred_units, cache["actual_units"].astype(np.float64), config.asym_total_ratio_penalty)
+        return "curve_log1p_score", log_rmse + config.penalty * weighted_curve_error + total_penalty
 
     return metric
 
 
-def asym_curve_log1p_objective(config: CurveObjectiveConfig):
+def asym_curve_log1p_objective(config: CurveObjectiveConfig, stockout_flags_by_matrix: dict[int, np.ndarray] | None = None):
     cache_by_matrix: dict[int, dict[str, np.ndarray]] = {}
+    stockout_flags_by_matrix = stockout_flags_by_matrix or {}
 
     def objective(raw_pred: np.ndarray, dmatrix: xgb.DMatrix) -> tuple[np.ndarray, np.ndarray]:
         key = id(dmatrix)
         if key not in cache_by_matrix:
-            cache_by_matrix[key] = curve_decile_cache(dmatrix.get_label(), config)
+            cache_by_matrix[key] = curve_decile_cache(dmatrix.get_label(), config, stockout_flags_by_matrix.get(key))
         cache = cache_by_matrix[key]
         labels = dmatrix.get_label().astype(np.float32)
         row_weights = dmatrix.get_weight()
@@ -612,8 +767,14 @@ def asym_curve_log1p_objective(config: CurveObjectiveConfig):
         pred_units = np.expm1(raw_clipped)
         unit_derivative = np.exp(raw_clipped)
 
-        grad = row_weights.astype(np.float64) * (raw_clipped - labels)
-        hess = row_weights.astype(np.float64)
+        adjusted_weights = stockout_adjusted_weights(labels, raw_clipped, row_weights, cache["stockout_flags"], config)
+        adjusted_weights *= row_asymmetric_decile_weights(
+            cache["decile_id"],
+            raw_clipped - labels.astype(np.float64),
+            config,
+        )
+        grad = adjusted_weights * (raw_clipped - labels)
+        hess = adjusted_weights
 
         if config.penalty > 0 and len(labels):
             decile_id = cache["decile_id"]
@@ -629,6 +790,14 @@ def asym_curve_log1p_objective(config: CurveObjectiveConfig):
             decile_hess = scale * (unit_derivative * unit_derivative) / (safe_pred[decile_id] * safe_pred[decile_id])
             grad += decile_grad
             hess += decile_hess
+        grad, hess = add_total_ratio_gradient(
+            grad,
+            hess,
+            pred_units,
+            unit_derivative,
+            cache["actual_units"].astype(np.float64),
+            config.asym_total_ratio_penalty,
+        )
 
         hess = np.maximum(hess, 1e-6)
         return grad.astype(np.float32), hess.astype(np.float32)
@@ -659,7 +828,8 @@ def asym_curve_log1p_metric(config: CurveObjectiveConfig):
         log_ratio = np.log(safe_pred / safe_actual)
         direction_weights = config.asymmetric_decile_weights(log_ratio)
         weighted_curve_error = float(np.average(np.abs(log_ratio), weights=direction_weights * np.maximum(counts, 1.0)))
-        return "asym_curve_log1p_score", log_rmse + config.penalty * weighted_curve_error
+        total_penalty = total_ratio_metric_penalty(pred_units, cache["actual_units"].astype(np.float64), config.asym_total_ratio_penalty)
+        return "asym_curve_log1p_score", log_rmse + config.penalty * weighted_curve_error + total_penalty
 
     return metric
 
@@ -675,6 +845,11 @@ def train_booster(
     weighting: str,
     label: str,
     curve_config: CurveObjectiveConfig,
+    max_depth: int,
+    min_child_weight: float,
+    eta: float,
+    subsample: float,
+    colsample_bytree: float,
 ) -> tuple[xgb.Booster, np.ndarray]:
     train_encoded = transform_frame(train_df, artifact, objective, weighting)
     valid_encoded = transform_frame(valid_df, artifact, objective, weighting)
@@ -694,33 +869,46 @@ def train_booster(
     custom_objective = None
     custom_metric = None
     base_score = None
+    stockout_flags_by_matrix = {
+        id(dtrain): train_df.get("stockout_proxy_flag", pd.Series(0, index=train_df.index)).to_numpy(dtype=bool),
+        id(dvalid): valid_df.get("stockout_proxy_flag", pd.Series(0, index=valid_df.index)).to_numpy(dtype=bool),
+    }
     if objective == CURVE_LOG1P_OBJECTIVE:
-        custom_objective = curve_log1p_objective(curve_config)
+        custom_objective = curve_log1p_objective(curve_config, stockout_flags_by_matrix)
         custom_metric = curve_log1p_metric(curve_config)
         base_score = float(np.mean(train_encoded.labels)) if len(train_encoded.labels) else 0.0
     elif objective == ASYM_CURVE_LOG1P_OBJECTIVE:
-        custom_objective = asym_curve_log1p_objective(curve_config)
+        custom_objective = asym_curve_log1p_objective(curve_config, stockout_flags_by_matrix)
         custom_metric = asym_curve_log1p_metric(curve_config)
         base_score = float(np.mean(train_encoded.labels)) if len(train_encoded.labels) else 0.0
     booster = xgb.train(
-        params=xgb_params(objective, seed, base_score=base_score),
+        params=xgb_params(
+            objective,
+            seed,
+            base_score=base_score,
+            max_depth=max_depth,
+            min_child_weight=min_child_weight,
+            eta=eta,
+            subsample=subsample,
+            colsample_bytree=colsample_bytree,
+        ),
         dtrain=dtrain,
         num_boost_round=rounds,
         evals=[(dtrain, "train"), (dvalid, "valid")],
         obj=custom_objective,
         custom_metric=custom_metric,
         maximize=False,
-        early_stopping_rounds=early_stopping,
+        early_stopping_rounds=early_stopping if early_stopping > 0 else None,
         verbose_eval=25,
     )
-    raw_pred = booster.predict(dvalid, iteration_range=(0, booster.best_iteration + 1))
+    raw_pred = booster.predict(dvalid, iteration_range=(0, best_iteration_end(booster)))
     return booster, inverse_predictions(raw_pred, objective)
 
 
 def predict_frame(booster: xgb.Booster, frame: pd.DataFrame, artifact: EncodingArtifact, objective: str) -> np.ndarray:
     encoded = transform_frame(frame, artifact, objective, "uniform")
     dmatrix = xgb.DMatrix(encoded.matrix, feature_names=artifact.feature_names)
-    raw = booster.predict(dmatrix, iteration_range=(0, booster.best_iteration + 1))
+    raw = booster.predict(dmatrix, iteration_range=(0, best_iteration_end(booster)))
     return inverse_predictions(raw, objective)
 
 
@@ -929,6 +1117,11 @@ def run_fold_training(
     weighting: str,
     output_dir: Path,
     curve_config: CurveObjectiveConfig,
+    max_depth: int,
+    min_child_weight: float,
+    eta: float,
+    subsample: float,
+    colsample_bytree: float,
 ) -> pd.DataFrame:
     rows = []
     for fold in folds:
@@ -945,6 +1138,11 @@ def run_fold_training(
             weighting,
             label=f"fold_{fold['fold']}",
             curve_config=curve_config,
+            max_depth=max_depth,
+            min_child_weight=min_child_weight,
+            eta=eta,
+            subsample=subsample,
+            colsample_bytree=colsample_bytree,
         )
         valid_df["prediction"] = prediction
         fold_dir = output_dir / f"fold_{fold['fold']}"
@@ -961,8 +1159,9 @@ def run_fold_training(
                 "train_end": fold["train_end"],
                 "validation_start": fold["validation_start"],
                 "validation_end": fold["validation_end"],
-                "best_iteration": int(booster.best_iteration),
-                "best_score": float(booster.best_score),
+                "best_iteration": best_iteration_value(booster),
+                "best_score": best_score_value(booster),
+                "composite_decile_score": composite_decile_score(valid_df, "prediction")["score"],
             }
         )
         tail_summary = tail_priority_summary(valid_df, "prediction")
@@ -988,6 +1187,11 @@ def final_train(
     weighting: str,
     output_dir: Path,
     curve_config: CurveObjectiveConfig,
+    max_depth: int,
+    min_child_weight: float,
+    eta: float,
+    subsample: float,
+    colsample_bytree: float,
 ) -> dict[str, object]:
     train_df = frame.loc[frame["split"] == "train"].copy()
     valid_df = frame.loc[frame["split"] == "valid"].copy()
@@ -1004,6 +1208,11 @@ def final_train(
         weighting,
         label="final",
         curve_config=curve_config,
+        max_depth=max_depth,
+        min_child_weight=min_child_weight,
+        eta=eta,
+        subsample=subsample,
+        colsample_bytree=colsample_bytree,
     )
     valid_df["prediction"] = valid_prediction
     test_df["prediction"] = predict_frame(booster, test_df, artifact, objective)
@@ -1028,12 +1237,14 @@ def final_train(
         ]
     ].to_csv(output_dir / "test_predictions.csv", index=False)
     return {
-        "best_iteration": int(booster.best_iteration),
-        "best_score": float(booster.best_score),
+        "best_iteration": best_iteration_value(booster),
+        "best_score": best_score_value(booster),
         "train_weight_report": weight_report(train_df, weighting),
         "validation_weight_report": weight_report(valid_df, weighting),
         "validation": metric_row(valid_df["sales_target"].to_numpy(dtype=np.float32), valid_df["prediction"].to_numpy(dtype=np.float32), "validation"),
         "test": metric_row(test_df["sales_target"].to_numpy(dtype=np.float32), test_df["prediction"].to_numpy(dtype=np.float32), "test"),
+        "validation_composite_decile_score": composite_decile_score(valid_df, "prediction"),
+        "test_composite_decile_score": composite_decile_score(test_df, "prediction"),
         "validation_tail_priority": tail_priority_summary(valid_df, "prediction"),
         "test_tail_priority": tail_priority_summary(test_df, "prediction"),
     }
@@ -1050,6 +1261,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--early-stopping", type=int, default=40)
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--weighting", choices=sorted(WEIGHTING_SCHEMES), default="uniform")
+    parser.add_argument("--max-depth", type=int, default=6)
+    parser.add_argument("--min-child-weight", type=float, default=25.0)
+    parser.add_argument("--eta", type=float, default=0.05)
+    parser.add_argument("--subsample", type=float, default=0.85)
+    parser.add_argument("--colsample-bytree", type=float, default=0.85)
     parser.add_argument("--curve-penalty", type=float, default=DEFAULT_CURVE_PENALTY)
     parser.add_argument("--curve-bottom-weight", type=float, default=DEFAULT_CURVE_BOTTOM_WEIGHT)
     parser.add_argument("--curve-middle-weight", type=float, default=DEFAULT_CURVE_MIDDLE_WEIGHT)
@@ -1059,6 +1275,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--asym-middle-weight", type=float, default=DEFAULT_ASYM_MIDDLE_WEIGHT)
     parser.add_argument("--asym-top-under-weight", type=float, default=DEFAULT_ASYM_TOP_UNDER_WEIGHT)
     parser.add_argument("--asym-top-over-weight", type=float, default=DEFAULT_ASYM_TOP_OVER_WEIGHT)
+    parser.add_argument("--asym-under-start-decile", type=int, default=DEFAULT_ASYM_UNDER_START_DECILE)
+    parser.add_argument("--asym-total-ratio-penalty", type=float, default=DEFAULT_ASYM_TOTAL_RATIO_PENALTY)
+    parser.add_argument("--stockout-under-weight", type=float, default=DEFAULT_STOCKOUT_UNDER_WEIGHT)
+    parser.add_argument("--stockout-over-weight", type=float, default=DEFAULT_STOCKOUT_OVER_WEIGHT)
     parser.add_argument("--skip-folds", action="store_true")
     return parser.parse_args()
 
@@ -1075,6 +1295,10 @@ def main() -> int:
         asym_middle_weight=args.asym_middle_weight,
         asym_top_under_weight=args.asym_top_under_weight,
         asym_top_over_weight=args.asym_top_over_weight,
+        asym_under_start_decile=args.asym_under_start_decile,
+        asym_total_ratio_penalty=args.asym_total_ratio_penalty,
+        stockout_under_weight=args.stockout_under_weight,
+        stockout_over_weight=args.stockout_over_weight,
     )
     frame, manifest, contract = load_dataset(args.dataset_dir, args.family, args.stage)
     contract, drop_report = apply_feature_drops(contract, args.family)
@@ -1102,6 +1326,11 @@ def main() -> int:
             args.weighting,
             run_dir / "folds",
             curve_config,
+            args.max_depth,
+            args.min_child_weight,
+            args.eta,
+            args.subsample,
+            args.colsample_bytree,
         )
     final_metrics = final_train(
         frame,
@@ -1113,6 +1342,11 @@ def main() -> int:
         args.weighting,
         run_dir,
         curve_config,
+        args.max_depth,
+        args.min_child_weight,
+        args.eta,
+        args.subsample,
+        args.colsample_bytree,
     )
     summary = {
         "created_at": datetime.now().isoformat(timespec="seconds"),
@@ -1120,6 +1354,13 @@ def main() -> int:
         "stage": args.stage,
         "objective": args.objective,
         "weighting": args.weighting,
+        "xgboost_params": {
+            "max_depth": args.max_depth,
+            "min_child_weight": args.min_child_weight,
+            "eta": args.eta,
+            "subsample": args.subsample,
+            "colsample_bytree": args.colsample_bytree,
+        },
         "curve_objective_config": curve_config.to_dict() if args.objective in CURVE_OBJECTIVES else None,
         "dataset_rows": int(len(frame)),
         "manifest": manifest,

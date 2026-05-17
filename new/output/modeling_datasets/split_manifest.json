@@ -1,5 +1,5 @@
 {
-  "created_at": "2026-05-16T00:27:55",
+  "created_at": "2026-05-17T00:34:56",
   "db_uri": "postgresql://norbert.jaworski@/paperrush?host=/tmp",
   "families": [
     {
@@ -17,6 +17,374 @@
         "median": 2.0,
         "p90": 4.0,
         "p99": 7.0
+      },
+      "completed_prior_features": {
+        "method": "completed_issue_history",
+        "completion_rule": "historical product offsaledate must be strictly before current product onsaledate",
+        "base_prior_specs": {
+          "global": [],
+          "store": [
+            "store_id"
+          ],
+          "store_title": [
+            "store_id",
+            "title"
+          ],
+          "store_segment": [
+            "store_id",
+            "segment"
+          ],
+          "store_subsegment": [
+            "store_id",
+            "subsegment"
+          ],
+          "store_type": [
+            "store_id",
+            "type"
+          ],
+          "chain_segment": [
+            "store_chain",
+            "segment"
+          ],
+          "chain_class_subsegment": [
+            "store_chain",
+            "classoftrade",
+            "subsegment"
+          ],
+          "title": [
+            "title"
+          ],
+          "segment": [
+            "segment"
+          ]
+        },
+        "window_prior_days": [
+          90,
+          180,
+          365
+        ],
+        "window_prior_specs": {
+          "global": [],
+          "store": [
+            "store_id"
+          ],
+          "store_segment": [
+            "store_id",
+            "segment"
+          ],
+          "store_subsegment": [
+            "store_id",
+            "subsegment"
+          ],
+          "chain_segment": [
+            "store_chain",
+            "segment"
+          ],
+          "chain_class_subsegment": [
+            "store_chain",
+            "classoftrade",
+            "subsegment"
+          ]
+        },
+        "recency_prior_half_life_days": 180,
+        "recency_prior_specs": {
+          "global": [],
+          "store": [
+            "store_id"
+          ],
+          "store_segment": [
+            "store_id",
+            "segment"
+          ],
+          "store_subsegment": [
+            "store_id",
+            "subsegment"
+          ],
+          "chain_segment": [
+            "store_chain",
+            "segment"
+          ],
+          "chain_class_subsegment": [
+            "store_chain",
+            "classoftrade",
+            "subsegment"
+          ]
+        },
+        "month_prior_specs": {
+          "global_month": [
+            "onsale_month"
+          ],
+          "segment_month": [
+            "segment",
+            "onsale_month"
+          ],
+          "subsegment_month": [
+            "subsegment",
+            "onsale_month"
+          ],
+          "store_subsegment_month": [
+            "store_id",
+            "subsegment",
+            "onsale_month"
+          ],
+          "chain_segment_month": [
+            "store_chain",
+            "segment",
+            "onsale_month"
+          ]
+        },
+        "features": [
+          "global_prior_positive_rate",
+          "global_prior_positive_avg_sales",
+          "global_prior_obs",
+          "store_prior_positive_rate",
+          "store_prior_positive_avg_sales",
+          "store_prior_obs",
+          "store_title_prior_positive_rate",
+          "store_title_prior_positive_avg_sales",
+          "store_title_prior_obs",
+          "store_segment_prior_positive_rate",
+          "store_segment_prior_positive_avg_sales",
+          "store_segment_prior_obs",
+          "store_subsegment_prior_positive_rate",
+          "store_subsegment_prior_positive_avg_sales",
+          "store_subsegment_prior_obs",
+          "store_type_prior_positive_rate",
+          "store_type_prior_positive_avg_sales",
+          "store_type_prior_obs",
+          "chain_segment_prior_positive_rate",
+          "chain_segment_prior_positive_avg_sales",
+          "chain_segment_prior_obs",
+          "chain_class_subsegment_prior_positive_rate",
+          "chain_class_subsegment_prior_positive_avg_sales",
+          "chain_class_subsegment_prior_obs",
+          "title_prior_positive_rate",
+          "title_prior_positive_avg_sales",
+          "title_prior_obs",
+          "segment_prior_positive_rate",
+          "segment_prior_positive_avg_sales",
+          "segment_prior_obs",
+          "global_completed_90d_positive_rate",
+          "global_completed_90d_positive_avg_sales",
+          "global_completed_90d_obs",
+          "global_completed_180d_positive_rate",
+          "global_completed_180d_positive_avg_sales",
+          "global_completed_180d_obs",
+          "global_completed_365d_positive_rate",
+          "global_completed_365d_positive_avg_sales",
+          "global_completed_365d_obs",
+          "store_completed_90d_positive_rate",
+          "store_completed_90d_positive_avg_sales",
+          "store_completed_90d_obs",
+          "store_completed_180d_positive_rate",
+          "store_completed_180d_positive_avg_sales",
+          "store_completed_180d_obs",
+          "store_completed_365d_positive_rate",
+          "store_completed_365d_positive_avg_sales",
+          "store_completed_365d_obs",
+          "store_segment_completed_90d_positive_rate",
+          "store_segment_completed_90d_positive_avg_sales",
+          "store_segment_completed_90d_obs",
+          "store_segment_completed_180d_positive_rate",
+          "store_segment_completed_180d_positive_avg_sales",
+          "store_segment_completed_180d_obs",
+          "store_segment_completed_365d_positive_rate",
+          "store_segment_completed_365d_positive_avg_sales",
+          "store_segment_completed_365d_obs",
+          "store_subsegment_completed_90d_positive_rate",
+          "store_subsegment_completed_90d_positive_avg_sales",
+          "store_subsegment_completed_90d_obs",
+          "store_subsegment_completed_180d_positive_rate",
+          "store_subsegment_completed_180d_positive_avg_sales",
+          "store_subsegment_completed_180d_obs",
+          "store_subsegment_completed_365d_positive_rate",
+          "store_subsegment_completed_365d_positive_avg_sales",
+          "store_subsegment_completed_365d_obs",
+          "chain_segment_completed_90d_positive_rate",
+          "chain_segment_completed_90d_positive_avg_sales",
+          "chain_segment_completed_90d_obs",
+          "chain_segment_completed_180d_positive_rate",
+          "chain_segment_completed_180d_positive_avg_sales",
+          "chain_segment_completed_180d_obs",
+          "chain_segment_completed_365d_positive_rate",
+          "chain_segment_completed_365d_positive_avg_sales",
+          "chain_segment_completed_365d_obs",
+          "chain_class_subsegment_completed_90d_positive_rate",
+          "chain_class_subsegment_completed_90d_positive_avg_sales",
+          "chain_class_subsegment_completed_90d_obs",
+          "chain_class_subsegment_completed_180d_positive_rate",
+          "chain_class_subsegment_completed_180d_positive_avg_sales",
+          "chain_class_subsegment_completed_180d_obs",
+          "chain_class_subsegment_completed_365d_positive_rate",
+          "chain_class_subsegment_completed_365d_positive_avg_sales",
+          "chain_class_subsegment_completed_365d_obs",
+          "global_completed_recency_hl180_positive_rate",
+          "global_completed_recency_hl180_positive_avg_sales",
+          "global_completed_recency_hl180_obs",
+          "store_completed_recency_hl180_positive_rate",
+          "store_completed_recency_hl180_positive_avg_sales",
+          "store_completed_recency_hl180_obs",
+          "store_segment_completed_recency_hl180_positive_rate",
+          "store_segment_completed_recency_hl180_positive_avg_sales",
+          "store_segment_completed_recency_hl180_obs",
+          "store_subsegment_completed_recency_hl180_positive_rate",
+          "store_subsegment_completed_recency_hl180_positive_avg_sales",
+          "store_subsegment_completed_recency_hl180_obs",
+          "chain_segment_completed_recency_hl180_positive_rate",
+          "chain_segment_completed_recency_hl180_positive_avg_sales",
+          "chain_segment_completed_recency_hl180_obs",
+          "chain_class_subsegment_completed_recency_hl180_positive_rate",
+          "chain_class_subsegment_completed_recency_hl180_positive_avg_sales",
+          "chain_class_subsegment_completed_recency_hl180_obs",
+          "global_month_prior_positive_rate",
+          "global_month_prior_positive_avg_sales",
+          "global_month_prior_obs",
+          "segment_month_prior_positive_rate",
+          "segment_month_prior_positive_avg_sales",
+          "segment_month_prior_obs",
+          "subsegment_month_prior_positive_rate",
+          "subsegment_month_prior_positive_avg_sales",
+          "subsegment_month_prior_obs",
+          "store_subsegment_month_prior_positive_rate",
+          "store_subsegment_month_prior_positive_avg_sales",
+          "store_subsegment_month_prior_obs",
+          "chain_segment_month_prior_positive_rate",
+          "chain_segment_month_prior_positive_avg_sales",
+          "chain_segment_month_prior_obs"
+        ],
+        "history_frames": {
+          "global": {
+            "group_columns": [],
+            "rows": 76,
+            "min_completion_date": "2023-04-06",
+            "max_completion_date": "2024-09-05"
+          },
+          "store": {
+            "group_columns": [
+              "store_id"
+            ],
+            "rows": 1849638,
+            "min_completion_date": "2023-04-06",
+            "max_completion_date": "2024-09-05"
+          },
+          "store_title": {
+            "group_columns": [
+              "store_id",
+              "title"
+            ],
+            "rows": 1849638,
+            "min_completion_date": "2023-04-06",
+            "max_completion_date": "2024-09-05"
+          },
+          "store_segment": {
+            "group_columns": [
+              "store_id",
+              "segment"
+            ],
+            "rows": 7411886,
+            "min_completion_date": "2023-04-06",
+            "max_completion_date": "2024-09-05"
+          },
+          "store_subsegment": {
+            "group_columns": [
+              "store_id",
+              "subsegment"
+            ],
+            "rows": 9665056,
+            "min_completion_date": "2023-04-06",
+            "max_completion_date": "2024-09-05"
+          },
+          "store_type": {
+            "group_columns": [
+              "store_id",
+              "type"
+            ],
+            "rows": 1849638,
+            "min_completion_date": "2023-04-06",
+            "max_completion_date": "2024-09-05"
+          },
+          "chain_segment": {
+            "group_columns": [
+              "store_chain",
+              "segment"
+            ],
+            "rows": 31609,
+            "min_completion_date": "2023-04-06",
+            "max_completion_date": "2024-09-05"
+          },
+          "chain_class_subsegment": {
+            "group_columns": [
+              "store_chain",
+              "classoftrade",
+              "subsegment"
+            ],
+            "rows": 46805,
+            "min_completion_date": "2023-04-06",
+            "max_completion_date": "2024-09-05"
+          },
+          "title": {
+            "group_columns": [
+              "title"
+            ],
+            "rows": 76,
+            "min_completion_date": "2023-04-06",
+            "max_completion_date": "2024-09-05"
+          },
+          "segment": {
+            "group_columns": [
+              "segment"
+            ],
+            "rows": 478,
+            "min_completion_date": "2023-04-06",
+            "max_completion_date": "2024-09-05"
+          },
+          "global_month": {
+            "group_columns": [
+              "onsale_month"
+            ],
+            "rows": 84,
+            "min_completion_date": "2023-04-06",
+            "max_completion_date": "2024-09-05"
+          },
+          "segment_month": {
+            "group_columns": [
+              "segment",
+              "onsale_month"
+            ],
+            "rows": 485,
+            "min_completion_date": "2023-04-06",
+            "max_completion_date": "2024-09-05"
+          },
+          "subsegment_month": {
+            "group_columns": [
+              "subsegment",
+              "onsale_month"
+            ],
+            "rows": 692,
+            "min_completion_date": "2023-04-06",
+            "max_completion_date": "2024-09-05"
+          },
+          "store_subsegment_month": {
+            "group_columns": [
+              "store_id",
+              "subsegment",
+              "onsale_month"
+            ],
+            "rows": 9714164,
+            "min_completion_date": "2023-04-06",
+            "max_completion_date": "2024-09-05"
+          },
+          "chain_segment_month": {
+            "group_columns": [
+              "store_chain",
+              "segment",
+              "onsale_month"
+            ],
+            "rows": 31990,
+            "min_completion_date": "2023-04-06",
+            "max_completion_date": "2024-09-05"
+          }
+        }
       },
       "embedding_features": {
         "family": "SIP",
@@ -203,6 +571,119 @@
           "bayesian_shrinkage_prior_strength": 5.0,
           "effective_neighbor_count": "Kish effective sample size: sum(weights)^2 / sum(weights^2)",
           "similarity_weighting": "cosine weights clipped at zero; equal weights fallback when all selected similarities are non-positive"
+        },
+        "affinity_features": {
+          "method": "completed_context_tail_low_embedding_centroid_affinity",
+          "components": 32,
+          "low_quantile": 0.3,
+          "tail_quantile": 0.8,
+          "low_sales_threshold": 1.0,
+          "tail_sales_threshold": 3.0,
+          "contexts": {
+            "chain_segment_affinity": {
+              "group_columns": [
+                "store_chain",
+                "segment"
+              ],
+              "tail_history_rows": 21066,
+              "low_history_rows": 22521,
+              "rows_with_tail_context": 2042081,
+              "rows_with_low_context": 2042935
+            },
+            "chain_class_subsegment_affinity": {
+              "group_columns": [
+                "store_chain",
+                "classoftrade",
+                "subsegment"
+              ],
+              "tail_history_rows": 28479,
+              "low_history_rows": 31008,
+              "rows_with_tail_context": 1946117,
+              "rows_with_low_context": 1947659
+            },
+            "class_subsegment_affinity": {
+              "group_columns": [
+                "classoftrade",
+                "subsegment"
+              ],
+              "tail_history_rows": 5141,
+              "low_history_rows": 5489,
+              "rows_with_tail_context": 1956529,
+              "rows_with_low_context": 1956520
+            },
+            "chain_affinity": {
+              "group_columns": [
+                "store_chain"
+              ],
+              "tail_history_rows": 4958,
+              "low_history_rows": 5127,
+              "rows_with_tail_context": 2079664,
+              "rows_with_low_context": 2079707
+            },
+            "class_affinity": {
+              "group_columns": [
+                "classoftrade"
+              ],
+              "tail_history_rows": 944,
+              "low_history_rows": 945,
+              "rows_with_tail_context": 2081357,
+              "rows_with_low_context": 2081331
+            },
+            "segment_affinity": {
+              "group_columns": [
+                "segment"
+              ],
+              "tail_history_rows": 478,
+              "low_history_rows": 478,
+              "rows_with_tail_context": 2047031,
+              "rows_with_low_context": 2047031
+            }
+          },
+          "features": [
+            "chain_segment_affinity_tail_similarity",
+            "chain_segment_affinity_low_similarity",
+            "chain_segment_affinity_tail_minus_low_similarity",
+            "chain_segment_affinity_tail_obs",
+            "chain_segment_affinity_low_obs",
+            "chain_segment_affinity_tail_avg_sales",
+            "chain_segment_affinity_low_avg_sales",
+            "chain_class_subsegment_affinity_tail_similarity",
+            "chain_class_subsegment_affinity_low_similarity",
+            "chain_class_subsegment_affinity_tail_minus_low_similarity",
+            "chain_class_subsegment_affinity_tail_obs",
+            "chain_class_subsegment_affinity_low_obs",
+            "chain_class_subsegment_affinity_tail_avg_sales",
+            "chain_class_subsegment_affinity_low_avg_sales",
+            "class_subsegment_affinity_tail_similarity",
+            "class_subsegment_affinity_low_similarity",
+            "class_subsegment_affinity_tail_minus_low_similarity",
+            "class_subsegment_affinity_tail_obs",
+            "class_subsegment_affinity_low_obs",
+            "class_subsegment_affinity_tail_avg_sales",
+            "class_subsegment_affinity_low_avg_sales",
+            "chain_affinity_tail_similarity",
+            "chain_affinity_low_similarity",
+            "chain_affinity_tail_minus_low_similarity",
+            "chain_affinity_tail_obs",
+            "chain_affinity_low_obs",
+            "chain_affinity_tail_avg_sales",
+            "chain_affinity_low_avg_sales",
+            "class_affinity_tail_similarity",
+            "class_affinity_low_similarity",
+            "class_affinity_tail_minus_low_similarity",
+            "class_affinity_tail_obs",
+            "class_affinity_low_obs",
+            "class_affinity_tail_avg_sales",
+            "class_affinity_low_avg_sales",
+            "segment_affinity_tail_similarity",
+            "segment_affinity_low_similarity",
+            "segment_affinity_tail_minus_low_similarity",
+            "segment_affinity_tail_obs",
+            "segment_affinity_low_obs",
+            "segment_affinity_tail_avg_sales",
+            "segment_affinity_low_avg_sales"
+          ],
+          "completion_rule": "historical product offsaledate must be strictly before current row onsaledate"
         },
         "artifact_path": "/Users/norbert.jaworski/Documents/uni/2 rok/understandingBusiness/project/new/output/modeling_datasets/sip/embedding_pca_regressor_positive.json",
         "cumulative_explained_variance_at_130": 0.9364582306788023
@@ -511,6 +992,484 @@
         "p90": 9.0,
         "p99": 26.0
       },
+      "completed_prior_features": {
+        "method": "completed_issue_history",
+        "completion_rule": "historical product offsaledate must be strictly before current product onsaledate",
+        "base_prior_specs": {
+          "global": [],
+          "chain": [
+            "store_chain"
+          ],
+          "class": [
+            "classoftrade"
+          ],
+          "store": [
+            "store_id"
+          ],
+          "store_title": [
+            "store_id",
+            "title"
+          ],
+          "store_segment": [
+            "store_id",
+            "segment"
+          ],
+          "store_subsegment": [
+            "store_id",
+            "subsegment"
+          ],
+          "store_type": [
+            "store_id",
+            "type"
+          ],
+          "chain_segment": [
+            "store_chain",
+            "segment"
+          ],
+          "chain_class_subsegment": [
+            "store_chain",
+            "classoftrade",
+            "subsegment"
+          ],
+          "chain_title": [
+            "store_chain",
+            "title"
+          ],
+          "class_subsegment": [
+            "classoftrade",
+            "subsegment"
+          ],
+          "class_title": [
+            "classoftrade",
+            "title"
+          ],
+          "title": [
+            "title"
+          ],
+          "segment": [
+            "segment"
+          ],
+          "subsegment": [
+            "subsegment"
+          ]
+        },
+        "window_prior_days": [
+          90,
+          180,
+          365
+        ],
+        "window_prior_specs": {
+          "global": [],
+          "store": [
+            "store_id"
+          ],
+          "store_segment": [
+            "store_id",
+            "segment"
+          ],
+          "store_subsegment": [
+            "store_id",
+            "subsegment"
+          ],
+          "chain_segment": [
+            "store_chain",
+            "segment"
+          ],
+          "chain_class_subsegment": [
+            "store_chain",
+            "classoftrade",
+            "subsegment"
+          ],
+          "class_subsegment": [
+            "classoftrade",
+            "subsegment"
+          ]
+        },
+        "recency_prior_half_life_days": 180,
+        "recency_prior_specs": {
+          "global": [],
+          "store": [
+            "store_id"
+          ],
+          "store_segment": [
+            "store_id",
+            "segment"
+          ],
+          "store_subsegment": [
+            "store_id",
+            "subsegment"
+          ],
+          "chain_segment": [
+            "store_chain",
+            "segment"
+          ],
+          "chain_class_subsegment": [
+            "store_chain",
+            "classoftrade",
+            "subsegment"
+          ],
+          "class_subsegment": [
+            "classoftrade",
+            "subsegment"
+          ]
+        },
+        "month_prior_specs": {
+          "global_month": [
+            "onsale_month"
+          ],
+          "segment_month": [
+            "segment",
+            "onsale_month"
+          ],
+          "subsegment_month": [
+            "subsegment",
+            "onsale_month"
+          ],
+          "store_subsegment_month": [
+            "store_id",
+            "subsegment",
+            "onsale_month"
+          ],
+          "chain_segment_month": [
+            "store_chain",
+            "segment",
+            "onsale_month"
+          ]
+        },
+        "features": [
+          "global_prior_positive_rate",
+          "global_prior_positive_avg_sales",
+          "global_prior_obs",
+          "chain_prior_positive_rate",
+          "chain_prior_positive_avg_sales",
+          "chain_prior_obs",
+          "class_prior_positive_rate",
+          "class_prior_positive_avg_sales",
+          "class_prior_obs",
+          "store_prior_positive_rate",
+          "store_prior_positive_avg_sales",
+          "store_prior_obs",
+          "store_title_prior_positive_rate",
+          "store_title_prior_positive_avg_sales",
+          "store_title_prior_obs",
+          "store_segment_prior_positive_rate",
+          "store_segment_prior_positive_avg_sales",
+          "store_segment_prior_obs",
+          "store_subsegment_prior_positive_rate",
+          "store_subsegment_prior_positive_avg_sales",
+          "store_subsegment_prior_obs",
+          "store_type_prior_positive_rate",
+          "store_type_prior_positive_avg_sales",
+          "store_type_prior_obs",
+          "chain_segment_prior_positive_rate",
+          "chain_segment_prior_positive_avg_sales",
+          "chain_segment_prior_obs",
+          "chain_class_subsegment_prior_positive_rate",
+          "chain_class_subsegment_prior_positive_avg_sales",
+          "chain_class_subsegment_prior_obs",
+          "chain_title_prior_positive_rate",
+          "chain_title_prior_positive_avg_sales",
+          "chain_title_prior_obs",
+          "class_subsegment_prior_positive_rate",
+          "class_subsegment_prior_positive_avg_sales",
+          "class_subsegment_prior_obs",
+          "class_title_prior_positive_rate",
+          "class_title_prior_positive_avg_sales",
+          "class_title_prior_obs",
+          "title_prior_positive_rate",
+          "title_prior_positive_avg_sales",
+          "title_prior_obs",
+          "segment_prior_positive_rate",
+          "segment_prior_positive_avg_sales",
+          "segment_prior_obs",
+          "subsegment_prior_positive_rate",
+          "subsegment_prior_positive_avg_sales",
+          "subsegment_prior_obs",
+          "global_completed_90d_positive_rate",
+          "global_completed_90d_positive_avg_sales",
+          "global_completed_90d_obs",
+          "global_completed_180d_positive_rate",
+          "global_completed_180d_positive_avg_sales",
+          "global_completed_180d_obs",
+          "global_completed_365d_positive_rate",
+          "global_completed_365d_positive_avg_sales",
+          "global_completed_365d_obs",
+          "store_completed_90d_positive_rate",
+          "store_completed_90d_positive_avg_sales",
+          "store_completed_90d_obs",
+          "store_completed_180d_positive_rate",
+          "store_completed_180d_positive_avg_sales",
+          "store_completed_180d_obs",
+          "store_completed_365d_positive_rate",
+          "store_completed_365d_positive_avg_sales",
+          "store_completed_365d_obs",
+          "store_segment_completed_90d_positive_rate",
+          "store_segment_completed_90d_positive_avg_sales",
+          "store_segment_completed_90d_obs",
+          "store_segment_completed_180d_positive_rate",
+          "store_segment_completed_180d_positive_avg_sales",
+          "store_segment_completed_180d_obs",
+          "store_segment_completed_365d_positive_rate",
+          "store_segment_completed_365d_positive_avg_sales",
+          "store_segment_completed_365d_obs",
+          "store_subsegment_completed_90d_positive_rate",
+          "store_subsegment_completed_90d_positive_avg_sales",
+          "store_subsegment_completed_90d_obs",
+          "store_subsegment_completed_180d_positive_rate",
+          "store_subsegment_completed_180d_positive_avg_sales",
+          "store_subsegment_completed_180d_obs",
+          "store_subsegment_completed_365d_positive_rate",
+          "store_subsegment_completed_365d_positive_avg_sales",
+          "store_subsegment_completed_365d_obs",
+          "chain_segment_completed_90d_positive_rate",
+          "chain_segment_completed_90d_positive_avg_sales",
+          "chain_segment_completed_90d_obs",
+          "chain_segment_completed_180d_positive_rate",
+          "chain_segment_completed_180d_positive_avg_sales",
+          "chain_segment_completed_180d_obs",
+          "chain_segment_completed_365d_positive_rate",
+          "chain_segment_completed_365d_positive_avg_sales",
+          "chain_segment_completed_365d_obs",
+          "chain_class_subsegment_completed_90d_positive_rate",
+          "chain_class_subsegment_completed_90d_positive_avg_sales",
+          "chain_class_subsegment_completed_90d_obs",
+          "chain_class_subsegment_completed_180d_positive_rate",
+          "chain_class_subsegment_completed_180d_positive_avg_sales",
+          "chain_class_subsegment_completed_180d_obs",
+          "chain_class_subsegment_completed_365d_positive_rate",
+          "chain_class_subsegment_completed_365d_positive_avg_sales",
+          "chain_class_subsegment_completed_365d_obs",
+          "class_subsegment_completed_90d_positive_rate",
+          "class_subsegment_completed_90d_positive_avg_sales",
+          "class_subsegment_completed_90d_obs",
+          "class_subsegment_completed_180d_positive_rate",
+          "class_subsegment_completed_180d_positive_avg_sales",
+          "class_subsegment_completed_180d_obs",
+          "class_subsegment_completed_365d_positive_rate",
+          "class_subsegment_completed_365d_positive_avg_sales",
+          "class_subsegment_completed_365d_obs",
+          "global_completed_recency_hl180_positive_rate",
+          "global_completed_recency_hl180_positive_avg_sales",
+          "global_completed_recency_hl180_obs",
+          "store_completed_recency_hl180_positive_rate",
+          "store_completed_recency_hl180_positive_avg_sales",
+          "store_completed_recency_hl180_obs",
+          "store_segment_completed_recency_hl180_positive_rate",
+          "store_segment_completed_recency_hl180_positive_avg_sales",
+          "store_segment_completed_recency_hl180_obs",
+          "store_subsegment_completed_recency_hl180_positive_rate",
+          "store_subsegment_completed_recency_hl180_positive_avg_sales",
+          "store_subsegment_completed_recency_hl180_obs",
+          "chain_segment_completed_recency_hl180_positive_rate",
+          "chain_segment_completed_recency_hl180_positive_avg_sales",
+          "chain_segment_completed_recency_hl180_obs",
+          "chain_class_subsegment_completed_recency_hl180_positive_rate",
+          "chain_class_subsegment_completed_recency_hl180_positive_avg_sales",
+          "chain_class_subsegment_completed_recency_hl180_obs",
+          "class_subsegment_completed_recency_hl180_positive_rate",
+          "class_subsegment_completed_recency_hl180_positive_avg_sales",
+          "class_subsegment_completed_recency_hl180_obs",
+          "global_month_prior_positive_rate",
+          "global_month_prior_positive_avg_sales",
+          "global_month_prior_obs",
+          "segment_month_prior_positive_rate",
+          "segment_month_prior_positive_avg_sales",
+          "segment_month_prior_obs",
+          "subsegment_month_prior_positive_rate",
+          "subsegment_month_prior_positive_avg_sales",
+          "subsegment_month_prior_obs",
+          "store_subsegment_month_prior_positive_rate",
+          "store_subsegment_month_prior_positive_avg_sales",
+          "store_subsegment_month_prior_obs",
+          "chain_segment_month_prior_positive_rate",
+          "chain_segment_month_prior_positive_avg_sales",
+          "chain_segment_month_prior_obs"
+        ],
+        "history_frames": {
+          "global": {
+            "group_columns": [],
+            "rows": 156,
+            "min_completion_date": "2023-01-16",
+            "max_completion_date": "2024-07-11"
+          },
+          "chain": {
+            "group_columns": [
+              "store_chain"
+            ],
+            "rows": 12088,
+            "min_completion_date": "2023-01-16",
+            "max_completion_date": "2024-07-11"
+          },
+          "class": {
+            "group_columns": [
+              "classoftrade"
+            ],
+            "rows": 2206,
+            "min_completion_date": "2023-01-16",
+            "max_completion_date": "2024-07-11"
+          },
+          "store": {
+            "group_columns": [
+              "store_id"
+            ],
+            "rows": 3000787,
+            "min_completion_date": "2023-01-16",
+            "max_completion_date": "2024-07-11"
+          },
+          "store_title": {
+            "group_columns": [
+              "store_id",
+              "title"
+            ],
+            "rows": 5686142,
+            "min_completion_date": "2023-01-16",
+            "max_completion_date": "2024-07-11"
+          },
+          "store_segment": {
+            "group_columns": [
+              "store_id",
+              "segment"
+            ],
+            "rows": 3048754,
+            "min_completion_date": "2023-01-16",
+            "max_completion_date": "2024-07-11"
+          },
+          "store_subsegment": {
+            "group_columns": [
+              "store_id",
+              "subsegment"
+            ],
+            "rows": 3384744,
+            "min_completion_date": "2023-01-16",
+            "max_completion_date": "2024-07-11"
+          },
+          "store_type": {
+            "group_columns": [
+              "store_id",
+              "type"
+            ],
+            "rows": 3000787,
+            "min_completion_date": "2023-01-16",
+            "max_completion_date": "2024-07-11"
+          },
+          "chain_segment": {
+            "group_columns": [
+              "store_chain",
+              "segment"
+            ],
+            "rows": 12294,
+            "min_completion_date": "2023-01-16",
+            "max_completion_date": "2024-07-11"
+          },
+          "chain_class_subsegment": {
+            "group_columns": [
+              "store_chain",
+              "classoftrade",
+              "subsegment"
+            ],
+            "rows": 15634,
+            "min_completion_date": "2023-01-16",
+            "max_completion_date": "2024-07-11"
+          },
+          "chain_title": {
+            "group_columns": [
+              "store_chain",
+              "title"
+            ],
+            "rows": 29256,
+            "min_completion_date": "2023-01-16",
+            "max_completion_date": "2024-07-11"
+          },
+          "class_subsegment": {
+            "group_columns": [
+              "classoftrade",
+              "subsegment"
+            ],
+            "rows": 2691,
+            "min_completion_date": "2023-01-16",
+            "max_completion_date": "2024-07-11"
+          },
+          "class_title": {
+            "group_columns": [
+              "classoftrade",
+              "title"
+            ],
+            "rows": 5389,
+            "min_completion_date": "2023-01-16",
+            "max_completion_date": "2024-07-11"
+          },
+          "title": {
+            "group_columns": [
+              "title"
+            ],
+            "rows": 421,
+            "min_completion_date": "2023-01-16",
+            "max_completion_date": "2024-07-11"
+          },
+          "segment": {
+            "group_columns": [
+              "segment"
+            ],
+            "rows": 159,
+            "min_completion_date": "2023-01-16",
+            "max_completion_date": "2024-07-11"
+          },
+          "subsegment": {
+            "group_columns": [
+              "subsegment"
+            ],
+            "rows": 198,
+            "min_completion_date": "2023-01-16",
+            "max_completion_date": "2024-07-11"
+          },
+          "global_month": {
+            "group_columns": [
+              "onsale_month"
+            ],
+            "rows": 162,
+            "min_completion_date": "2023-01-16",
+            "max_completion_date": "2024-07-11"
+          },
+          "segment_month": {
+            "group_columns": [
+              "segment",
+              "onsale_month"
+            ],
+            "rows": 165,
+            "min_completion_date": "2023-01-16",
+            "max_completion_date": "2024-07-11"
+          },
+          "subsegment_month": {
+            "group_columns": [
+              "subsegment",
+              "onsale_month"
+            ],
+            "rows": 204,
+            "min_completion_date": "2023-01-16",
+            "max_completion_date": "2024-07-11"
+          },
+          "store_subsegment_month": {
+            "group_columns": [
+              "store_id",
+              "subsegment",
+              "onsale_month"
+            ],
+            "rows": 3460845,
+            "min_completion_date": "2023-01-16",
+            "max_completion_date": "2024-07-11"
+          },
+          "chain_segment_month": {
+            "group_columns": [
+              "store_chain",
+              "segment",
+              "onsale_month"
+            ],
+            "rows": 12720,
+            "min_completion_date": "2023-01-16",
+            "max_completion_date": "2024-07-11"
+          }
+        }
+      },
       "embedding_features": {
         "family": "Weeklies",
         "method": "pca",
@@ -696,6 +1655,250 @@
           "bayesian_shrinkage_prior_strength": 5.0,
           "effective_neighbor_count": "Kish effective sample size: sum(weights)^2 / sum(weights^2)",
           "similarity_weighting": "cosine weights clipped at zero; equal weights fallback when all selected similarities are non-positive"
+        },
+        "affinity_features": {
+          "method": "completed_context_tail_low_embedding_centroid_affinity",
+          "components": 32,
+          "low_quantile": 0.3,
+          "tail_quantile": 0.8,
+          "low_sales_threshold": 1.0,
+          "tail_sales_threshold": 6.0,
+          "contexts": {
+            "global_affinity": {
+              "group_columns": [],
+              "tail_history_rows": 156,
+              "low_history_rows": 156,
+              "rows_with_tail_context": 1989086,
+              "rows_with_low_context": 1989086
+            },
+            "store_affinity": {
+              "group_columns": [
+                "store_id"
+              ],
+              "tail_history_rows": 337418,
+              "low_history_rows": 614010,
+              "rows_with_tail_context": 1504786,
+              "rows_with_low_context": 1916338
+            },
+            "store_segment_affinity": {
+              "group_columns": [
+                "store_id",
+                "segment"
+              ],
+              "tail_history_rows": 337895,
+              "low_history_rows": 615460,
+              "rows_with_tail_context": 1118311,
+              "rows_with_low_context": 1661513
+            },
+            "store_subsegment_affinity": {
+              "group_columns": [
+                "store_id",
+                "subsegment"
+              ],
+              "tail_history_rows": 338488,
+              "low_history_rows": 635641,
+              "rows_with_tail_context": 1080789,
+              "rows_with_low_context": 1639668
+            },
+            "store_title_affinity": {
+              "group_columns": [
+                "store_id",
+                "title"
+              ],
+              "tail_history_rows": 390890,
+              "low_history_rows": 726095,
+              "rows_with_tail_context": 879317,
+              "rows_with_low_context": 1455073
+            },
+            "chain_title_affinity": {
+              "group_columns": [
+                "store_chain",
+                "title"
+              ],
+              "tail_history_rows": 10781,
+              "low_history_rows": 19508,
+              "rows_with_tail_context": 1926271,
+              "rows_with_low_context": 1971375
+            },
+            "class_title_affinity": {
+              "group_columns": [
+                "classoftrade",
+                "title"
+              ],
+              "tail_history_rows": 2251,
+              "low_history_rows": 3722,
+              "rows_with_tail_context": 1952420,
+              "rows_with_low_context": 1974421
+            },
+            "chain_segment_affinity": {
+              "group_columns": [
+                "store_chain",
+                "segment"
+              ],
+              "tail_history_rows": 6683,
+              "low_history_rows": 8708,
+              "rows_with_tail_context": 1975891,
+              "rows_with_low_context": 1986881
+            },
+            "chain_class_subsegment_affinity": {
+              "group_columns": [
+                "store_chain",
+                "classoftrade",
+                "subsegment"
+              ],
+              "tail_history_rows": 7341,
+              "low_history_rows": 10782,
+              "rows_with_tail_context": 1970122,
+              "rows_with_low_context": 1986706
+            },
+            "class_subsegment_affinity": {
+              "group_columns": [
+                "classoftrade",
+                "subsegment"
+              ],
+              "tail_history_rows": 1359,
+              "low_history_rows": 1969,
+              "rows_with_tail_context": 1980566,
+              "rows_with_low_context": 1988980
+            },
+            "chain_affinity": {
+              "group_columns": [
+                "store_chain"
+              ],
+              "tail_history_rows": 6603,
+              "low_history_rows": 8585,
+              "rows_with_tail_context": 1986886,
+              "rows_with_low_context": 1988266
+            },
+            "class_affinity": {
+              "group_columns": [
+                "classoftrade"
+              ],
+              "tail_history_rows": 1216,
+              "low_history_rows": 1649,
+              "rows_with_tail_context": 1989057,
+              "rows_with_low_context": 1989043
+            },
+            "segment_affinity": {
+              "group_columns": [
+                "segment"
+              ],
+              "tail_history_rows": 159,
+              "low_history_rows": 159,
+              "rows_with_tail_context": 1989086,
+              "rows_with_low_context": 1989086
+            },
+            "subsegment_affinity": {
+              "group_columns": [
+                "subsegment"
+              ],
+              "tail_history_rows": 198,
+              "low_history_rows": 198,
+              "rows_with_tail_context": 1989086,
+              "rows_with_low_context": 1989086
+            }
+          },
+          "features": [
+            "global_affinity_tail_similarity",
+            "global_affinity_low_similarity",
+            "global_affinity_tail_minus_low_similarity",
+            "global_affinity_tail_obs",
+            "global_affinity_low_obs",
+            "global_affinity_tail_avg_sales",
+            "global_affinity_low_avg_sales",
+            "store_affinity_tail_similarity",
+            "store_affinity_low_similarity",
+            "store_affinity_tail_minus_low_similarity",
+            "store_affinity_tail_obs",
+            "store_affinity_low_obs",
+            "store_affinity_tail_avg_sales",
+            "store_affinity_low_avg_sales",
+            "store_segment_affinity_tail_similarity",
+            "store_segment_affinity_low_similarity",
+            "store_segment_affinity_tail_minus_low_similarity",
+            "store_segment_affinity_tail_obs",
+            "store_segment_affinity_low_obs",
+            "store_segment_affinity_tail_avg_sales",
+            "store_segment_affinity_low_avg_sales",
+            "store_subsegment_affinity_tail_similarity",
+            "store_subsegment_affinity_low_similarity",
+            "store_subsegment_affinity_tail_minus_low_similarity",
+            "store_subsegment_affinity_tail_obs",
+            "store_subsegment_affinity_low_obs",
+            "store_subsegment_affinity_tail_avg_sales",
+            "store_subsegment_affinity_low_avg_sales",
+            "store_title_affinity_tail_similarity",
+            "store_title_affinity_low_similarity",
+            "store_title_affinity_tail_minus_low_similarity",
+            "store_title_affinity_tail_obs",
+            "store_title_affinity_low_obs",
+            "store_title_affinity_tail_avg_sales",
+            "store_title_affinity_low_avg_sales",
+            "chain_title_affinity_tail_similarity",
+            "chain_title_affinity_low_similarity",
+            "chain_title_affinity_tail_minus_low_similarity",
+            "chain_title_affinity_tail_obs",
+            "chain_title_affinity_low_obs",
+            "chain_title_affinity_tail_avg_sales",
+            "chain_title_affinity_low_avg_sales",
+            "class_title_affinity_tail_similarity",
+            "class_title_affinity_low_similarity",
+            "class_title_affinity_tail_minus_low_similarity",
+            "class_title_affinity_tail_obs",
+            "class_title_affinity_low_obs",
+            "class_title_affinity_tail_avg_sales",
+            "class_title_affinity_low_avg_sales",
+            "chain_segment_affinity_tail_similarity",
+            "chain_segment_affinity_low_similarity",
+            "chain_segment_affinity_tail_minus_low_similarity",
+            "chain_segment_affinity_tail_obs",
+            "chain_segment_affinity_low_obs",
+            "chain_segment_affinity_tail_avg_sales",
+            "chain_segment_affinity_low_avg_sales",
+            "chain_class_subsegment_affinity_tail_similarity",
+            "chain_class_subsegment_affinity_low_similarity",
+            "chain_class_subsegment_affinity_tail_minus_low_similarity",
+            "chain_class_subsegment_affinity_tail_obs",
+            "chain_class_subsegment_affinity_low_obs",
+            "chain_class_subsegment_affinity_tail_avg_sales",
+            "chain_class_subsegment_affinity_low_avg_sales",
+            "class_subsegment_affinity_tail_similarity",
+            "class_subsegment_affinity_low_similarity",
+            "class_subsegment_affinity_tail_minus_low_similarity",
+            "class_subsegment_affinity_tail_obs",
+            "class_subsegment_affinity_low_obs",
+            "class_subsegment_affinity_tail_avg_sales",
+            "class_subsegment_affinity_low_avg_sales",
+            "chain_affinity_tail_similarity",
+            "chain_affinity_low_similarity",
+            "chain_affinity_tail_minus_low_similarity",
+            "chain_affinity_tail_obs",
+            "chain_affinity_low_obs",
+            "chain_affinity_tail_avg_sales",
+            "chain_affinity_low_avg_sales",
+            "class_affinity_tail_similarity",
+            "class_affinity_low_similarity",
+            "class_affinity_tail_minus_low_similarity",
+            "class_affinity_tail_obs",
+            "class_affinity_low_obs",
+            "class_affinity_tail_avg_sales",
+            "class_affinity_low_avg_sales",
+            "segment_affinity_tail_similarity",
+            "segment_affinity_low_similarity",
+            "segment_affinity_tail_minus_low_similarity",
+            "segment_affinity_tail_obs",
+            "segment_affinity_low_obs",
+            "segment_affinity_tail_avg_sales",
+            "segment_affinity_low_avg_sales",
+            "subsegment_affinity_tail_similarity",
+            "subsegment_affinity_low_similarity",
+            "subsegment_affinity_tail_minus_low_similarity",
+            "subsegment_affinity_tail_obs",
+            "subsegment_affinity_low_obs",
+            "subsegment_affinity_tail_avg_sales",
+            "subsegment_affinity_low_avg_sales"
+          ],
+          "completion_rule": "historical product offsaledate must be strictly before current row onsaledate"
         },
         "artifact_path": "/Users/norbert.jaworski/Documents/uni/2 rok/understandingBusiness/project/new/output/modeling_datasets/weeklies/embedding_pca_regressor_positive.json",
         "cumulative_explained_variance_at_130": 0.9659804519351685

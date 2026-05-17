@@ -51015,5 +51015,118 @@
     "bayesian_shrinkage_prior_strength": 5.0,
     "effective_neighbor_count": "Kish effective sample size: sum(weights)^2 / sum(weights^2)",
     "similarity_weighting": "cosine weights clipped at zero; equal weights fallback when all selected similarities are non-positive"
+  },
+  "affinity_features": {
+    "method": "completed_context_tail_low_embedding_centroid_affinity",
+    "components": 32,
+    "low_quantile": 0.3,
+    "tail_quantile": 0.8,
+    "low_sales_threshold": 1.0,
+    "tail_sales_threshold": 3.0,
+    "contexts": {
+      "chain_segment_affinity": {
+        "group_columns": [
+          "store_chain",
+          "segment"
+        ],
+        "tail_history_rows": 21066,
+        "low_history_rows": 22521,
+        "rows_with_tail_context": 2042081,
+        "rows_with_low_context": 2042935
+      },
+      "chain_class_subsegment_affinity": {
+        "group_columns": [
+          "store_chain",
+          "classoftrade",
+          "subsegment"
+        ],
+        "tail_history_rows": 28479,
+        "low_history_rows": 31008,
+        "rows_with_tail_context": 1946117,
+        "rows_with_low_context": 1947659
+      },
+      "class_subsegment_affinity": {
+        "group_columns": [
+          "classoftrade",
+          "subsegment"
+        ],
+        "tail_history_rows": 5141,
+        "low_history_rows": 5489,
+        "rows_with_tail_context": 1956529,
+        "rows_with_low_context": 1956520
+      },
+      "chain_affinity": {
+        "group_columns": [
+          "store_chain"
+        ],
+        "tail_history_rows": 4958,
+        "low_history_rows": 5127,
+        "rows_with_tail_context": 2079664,
+        "rows_with_low_context": 2079707
+      },
+      "class_affinity": {
+        "group_columns": [
+          "classoftrade"
+        ],
+        "tail_history_rows": 944,
+        "low_history_rows": 945,
+        "rows_with_tail_context": 2081357,
+        "rows_with_low_context": 2081331
+      },
+      "segment_affinity": {
+        "group_columns": [
+          "segment"
+        ],
+        "tail_history_rows": 478,
+        "low_history_rows": 478,
+        "rows_with_tail_context": 2047031,
+        "rows_with_low_context": 2047031
+      }
+    },
+    "features": [
+      "chain_segment_affinity_tail_similarity",
+      "chain_segment_affinity_low_similarity",
+      "chain_segment_affinity_tail_minus_low_similarity",
+      "chain_segment_affinity_tail_obs",
+      "chain_segment_affinity_low_obs",
+      "chain_segment_affinity_tail_avg_sales",
+      "chain_segment_affinity_low_avg_sales",
+      "chain_class_subsegment_affinity_tail_similarity",
+      "chain_class_subsegment_affinity_low_similarity",
+      "chain_class_subsegment_affinity_tail_minus_low_similarity",
+      "chain_class_subsegment_affinity_tail_obs",
+      "chain_class_subsegment_affinity_low_obs",
+      "chain_class_subsegment_affinity_tail_avg_sales",
+      "chain_class_subsegment_affinity_low_avg_sales",
+      "class_subsegment_affinity_tail_similarity",
+      "class_subsegment_affinity_low_similarity",
+      "class_subsegment_affinity_tail_minus_low_similarity",
+      "class_subsegment_affinity_tail_obs",
+      "class_subsegment_affinity_low_obs",
+      "class_subsegment_affinity_tail_avg_sales",
+      "class_subsegment_affinity_low_avg_sales",
+      "chain_affinity_tail_similarity",
+      "chain_affinity_low_similarity",
+      "chain_affinity_tail_minus_low_similarity",
+      "chain_affinity_tail_obs",
+      "chain_affinity_low_obs",
+      "chain_affinity_tail_avg_sales",
+      "chain_affinity_low_avg_sales",
+      "class_affinity_tail_similarity",
+      "class_affinity_low_similarity",
+      "class_affinity_tail_minus_low_similarity",
+      "class_affinity_tail_obs",
+      "class_affinity_low_obs",
+      "class_affinity_tail_avg_sales",
+      "class_affinity_low_avg_sales",
+      "segment_affinity_tail_similarity",
+      "segment_affinity_low_similarity",
+      "segment_affinity_tail_minus_low_similarity",
+      "segment_affinity_tail_obs",
+      "segment_affinity_low_obs",
+      "segment_affinity_tail_avg_sales",
+      "segment_affinity_low_avg_sales"
+    ],
+    "completion_rule": "historical product offsaledate must be strictly before current row onsaledate"
   }
 }
