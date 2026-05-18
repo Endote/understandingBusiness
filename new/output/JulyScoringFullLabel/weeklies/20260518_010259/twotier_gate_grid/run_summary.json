@@ -1,0 +1,27 @@
+{
+  "created_at": "2026-05-18T01:08:37",
+  "source_scoring_dir": "new/output/JulyScoringFullLabel/weeklies/20260518_010259",
+  "best_variant": {
+    "variant": "twotier_raw_low0.475_high0.625_floor0.25_scale1.20",
+    "rows": 312094,
+    "nonzero_rate": 0.37534524854691215,
+    "unit_sum": 433502.738414948,
+    "mean_all": 1.3890133690969644,
+    "mean_nonzero": 3.7006286198487994,
+    "p50": 0.0,
+    "p90": 4.086835152269223,
+    "p95": 8.259628488274238,
+    "p99": 15.42179355343024,
+    "top10_share": 0.6755866216501865,
+    "low_threshold": 0.4750000000000001,
+    "high_threshold": 0.625,
+    "floor": 0.25,
+    "global_scale": 1.2,
+    "score": 0.041339281548320006
+  },
+  "outputs": {
+    "grid": "new/output/JulyScoringFullLabel/weeklies/20260518_010259/twotier_gate_grid/twotier_gate_grid.csv",
+    "predictions_parquet": "new/output/JulyScoringFullLabel/weeklies/20260518_010259/twotier_gate_grid/july_holdout_weeklies_predictions_twotier_best.parquet",
+    "predictions_csv": "new/output/JulyScoringFullLabel/weeklies/20260518_010259/twotier_gate_grid/july_holdout_weeklies_predictions_twotier_best.csv"
+  }
+}

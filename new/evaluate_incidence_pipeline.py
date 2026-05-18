@@ -223,6 +223,13 @@ def pipeline_score(frame: pd.DataFrame, prediction_col: str) -> dict[str, object
     zero_mask = frame["sales_target"].to_numpy(dtype=np.float32) <= 0
     positive_deciles = actual_positive_decile_metrics(frame, prediction_col, "__tmp__", "__tmp__").sort_values("actual_positive_decile")
     ratios = positive_deciles["unit_ratio_pred_over_actual"].to_numpy(dtype=np.float64)
+    bottom30_ratio = float(np.mean(ratios[:3])) if len(ratios) >= 3 else math.nan
+    bottom40_ratio = float(np.mean(ratios[:4])) if len(ratios) >= 4 else math.nan
+    mid40_ratio = float(np.mean(ratios[3:7])) if len(ratios) >= 7 else math.nan
+    top30_ratio = float(np.mean(ratios[7:10])) if len(ratios) >= 10 else math.nan
+    top10_ratio = float(ratios[9]) if len(ratios) >= 10 else math.nan
+    max_positive_decile_ratio = float(np.max(ratios)) if len(ratios) else math.nan
+    min_positive_decile_ratio = float(np.min(ratios)) if len(ratios) else math.nan
     bottom = ratios[: min(4, len(ratios))]
     d1_d3 = ratios[: min(3, len(ratios))]
     d4_d6 = ratios[3:6] if len(ratios) >= 6 else np.array([], dtype=np.float64)
@@ -256,8 +263,20 @@ def pipeline_score(frame: pd.DataFrame, prediction_col: str) -> dict[str, object
         + 2.0 * zero_leak_ratio
         + 0.35 * float(base["wape"])
     )
+    sip_score = (
+        20.0 * max(zero_leak_ratio - 0.80, 0.0)
+        + 10.0 * max(total_ratio - 1.40, 0.0)
+        + 3.0 * max(0.90 - total_ratio, 0.0)
+        + 9.0 * max((bottom30_ratio if not math.isnan(bottom30_ratio) else 0.0) - 1.40, 0.0)
+        + 6.0 * max((max_positive_decile_ratio if not math.isnan(max_positive_decile_ratio) else 0.0) - 1.50, 0.0)
+        + 8.0 * max(0.78 - (top30_ratio if not math.isnan(top30_ratio) else 0.0), 0.0)
+        + 8.0 * max(0.82 - (top10_ratio if not math.isnan(top10_ratio) else 0.0), 0.0)
+        + 3.0 * max(0.65 - (min_positive_decile_ratio if not math.isnan(min_positive_decile_ratio) else 0.0), 0.0)
+        + 0.25 * float(base["wape"])
+    )
     return {
         "score": float(score),
+        "sip_score": float(sip_score),
         "wape": float(base["wape"]),
         "total_unit_ratio": total_ratio,
         "total_unit_ratio_gap": float(total_gap),
@@ -265,6 +284,13 @@ def pipeline_score(frame: pd.DataFrame, prediction_col: str) -> dict[str, object
         "target_total_above_135": float(total_above_135),
         "zero_predicted_sum": zero_predicted_sum,
         "zero_leak_ratio": float(zero_leak_ratio),
+        "bottom30_positive_unit_ratio": bottom30_ratio,
+        "bottom40_positive_unit_ratio": bottom40_ratio,
+        "mid40_positive_unit_ratio": mid40_ratio,
+        "top30_positive_unit_ratio": top30_ratio,
+        "top10_positive_unit_ratio": top10_ratio,
+        "max_positive_decile_unit_ratio": max_positive_decile_ratio,
+        "min_positive_decile_unit_ratio": min_positive_decile_ratio,
         "bottom_positive_d1_d4_overprediction": bottom_over,
         "bottom_positive_d1_d4_under_below_65": bottom_under_below_65,
         "positive_d7_d8_underprediction": d7_d8_under,
@@ -278,6 +304,7 @@ def pipeline_score(frame: pd.DataFrame, prediction_col: str) -> dict[str, object
         "actual_sum": float(base["actual_sum"]),
         "predicted_sum": float(base["predicted_sum"]),
         "formula": "7.5*d1_d3_over_115 + 2.5*d4_d6_outside_0.90_1.10 + 7*d7_d10_below_1.10 + 4*d7_d10_above_1.30 + 2.5*total_below_1.15 + 2*total_above_1.35 + 2*zero_leak + 0.35*WAPE",
+        "sip_formula": "20*zero_leak_over_0.80 + 10*total_over_1.40 + 3*total_under_0.90 + 9*bottom30_over_1.40 + 6*max_decile_over_1.50 + 8*top30_under_0.78 + 8*top10_under_0.82 + 3*min_decile_under_0.65 + 0.25*WAPE",
     }
 
 
@@ -369,6 +396,156 @@ def add_constrained_soft_gate_amount_variants(
             add_variant(variants, name, base_prediction, incidence_multiplier * amount_multiplier)
 
 
+def add_sip_dense_gate_variants(
+    variants: dict[str, np.ndarray],
+    base_prediction: np.ndarray,
+    raw_probability: np.ndarray,
+    calibrated_probability: np.ndarray,
+    tail_probability: np.ndarray | None,
+    low_probability: np.ndarray | None,
+) -> None:
+    amount_rank = probability_rank(base_prediction).astype(np.float64)
+    tail_rank = probability_rank(tail_probability).astype(np.float64) if tail_probability is not None else amount_rank
+    low_rank = probability_rank(low_probability).astype(np.float64) if low_probability is not None else 1.0 - amount_rank
+
+    probability_layers = (("raw", raw_probability), ("calibrated", calibrated_probability))
+    thresholds = (0.575, 0.600, 0.625, 0.650, 0.675, 0.700, 0.725, 0.750)
+    floors = (0.000, 0.025, 0.050, 0.075, 0.100, 0.125, 0.150, 0.175, 0.200, 0.225, 0.250)
+    for probability_name, probability in probability_layers:
+        for threshold in thresholds:
+            gate = (probability >= threshold).astype(np.float64)
+            for floor in floors:
+                layer = floor + (1.0 - floor) * gate
+                add_variant(
+                    variants,
+                    f"SIP_dense_soft_{probability_name}_t{threshold:.3f}_floor{floor:.3f}",
+                    base_prediction,
+                    layer,
+                )
+
+    # These shaped floors are aimed exactly at the high-top candidate's failure mode:
+    # keep a floor for high amount/tail ranks, but remove most of the floor from low-rank zero-heavy rows.
+    shaped_profiles = [
+        # threshold, base_floor, top_floor, top_rank_cut, low_rank_cut, low_factor, tail_cut, tail_bonus, scale
+        (0.600, 0.000, 0.100, 0.82, 0.36, 0.20, 0.72, 0.030, 1.00),
+        (0.625, 0.000, 0.125, 0.82, 0.36, 0.20, 0.72, 0.030, 1.00),
+        (0.650, 0.000, 0.150, 0.82, 0.36, 0.20, 0.72, 0.030, 1.00),
+        (0.675, 0.000, 0.175, 0.82, 0.36, 0.20, 0.72, 0.030, 1.00),
+        (0.650, 0.025, 0.150, 0.84, 0.40, 0.25, 0.75, 0.025, 0.98),
+        (0.675, 0.025, 0.175, 0.84, 0.40, 0.25, 0.75, 0.025, 0.98),
+        (0.700, 0.025, 0.200, 0.84, 0.40, 0.25, 0.75, 0.025, 0.98),
+        (0.625, 0.050, 0.125, 0.86, 0.44, 0.30, 0.78, 0.020, 0.95),
+        (0.650, 0.050, 0.150, 0.86, 0.44, 0.30, 0.78, 0.020, 0.95),
+        (0.675, 0.050, 0.175, 0.86, 0.44, 0.30, 0.78, 0.020, 0.95),
+        (0.700, 0.050, 0.200, 0.86, 0.44, 0.30, 0.78, 0.020, 0.95),
+        (0.650, 0.075, 0.175, 0.88, 0.48, 0.35, 0.80, 0.015, 0.92),
+        (0.675, 0.075, 0.200, 0.88, 0.48, 0.35, 0.80, 0.015, 0.92),
+        (0.700, 0.075, 0.225, 0.88, 0.48, 0.35, 0.80, 0.015, 0.92),
+    ]
+    for probability_name, probability in probability_layers:
+        for threshold, base_floor, top_floor, top_rank_cut, low_rank_cut, low_factor, tail_cut, tail_bonus, scale in shaped_profiles:
+            gate = (probability >= threshold).astype(np.float64)
+            floor = np.full(len(base_prediction), base_floor, dtype=np.float64)
+            top_mask = (amount_rank >= top_rank_cut) | (tail_rank >= tail_cut)
+            floor[top_mask] = np.maximum(floor[top_mask], top_floor)
+            floor[low_rank >= 0.75] *= 0.75
+            floor[amount_rank <= low_rank_cut] *= low_factor
+            floor[(tail_rank >= tail_cut) & (amount_rank >= 0.72)] += tail_bonus
+            floor = np.clip(floor, 0.0, 0.35)
+            layer = (floor + (1.0 - floor) * gate) * scale
+            add_variant(
+                variants,
+                f"SIP_shaped_{probability_name}_t{threshold:.3f}_base{base_floor:.3f}_top{top_floor:.3f}_scale{scale:.2f}",
+                base_prediction,
+                layer,
+            )
+
+    rank_profiles = [
+        # threshold, floor, low_cut, low_factor, mid_low, mid_high, mid_factor, top_cut, top_factor, scale
+        (0.625, 0.100, 0.30, 0.55, 0.45, 0.78, 1.00, 0.86, 1.05, 0.92),
+        (0.650, 0.100, 0.32, 0.55, 0.45, 0.80, 1.03, 0.86, 1.08, 0.92),
+        (0.675, 0.100, 0.34, 0.60, 0.48, 0.82, 1.05, 0.88, 1.10, 0.92),
+        (0.650, 0.125, 0.34, 0.55, 0.48, 0.82, 1.05, 0.88, 1.08, 0.90),
+        (0.675, 0.125, 0.36, 0.60, 0.50, 0.84, 1.08, 0.88, 1.10, 0.90),
+        (0.700, 0.125, 0.38, 0.65, 0.52, 0.86, 1.10, 0.90, 1.12, 0.90),
+    ]
+    for probability_name, probability in probability_layers:
+        for threshold, floor, low_cut, low_factor, mid_low, mid_high, mid_factor, top_cut, top_factor, scale in rank_profiles:
+            gate = (probability >= threshold).astype(np.float64)
+            incidence_layer = floor + (1.0 - floor) * gate
+            amount_shape = np.full(len(base_prediction), scale, dtype=np.float64)
+            amount_shape[amount_rank <= low_cut] *= low_factor
+            amount_shape[(amount_rank >= mid_low) & (amount_rank <= mid_high)] *= mid_factor
+            amount_shape[(amount_rank >= top_cut) | ((tail_rank >= 0.78) & (amount_rank >= 0.72))] *= top_factor
+            add_variant(
+                variants,
+                f"SIP_rank_shape_{probability_name}_t{threshold:.3f}_floor{floor:.3f}_low{low_factor:.2f}_mid{mid_factor:.2f}_top{top_factor:.2f}_scale{scale:.2f}",
+                base_prediction,
+                incidence_layer * np.clip(amount_shape, 0.0, 1.6),
+            )
+
+    combined_profiles = [
+        # prob_weight, amount_weight, tail_weight, low_weight
+        (0.70, 0.20, 0.10, 0.00),
+        (0.60, 0.25, 0.15, 0.00),
+        (0.55, 0.30, 0.15, 0.00),
+        (0.55, 0.25, 0.15, 0.05),
+        (0.50, 0.30, 0.15, 0.05),
+    ]
+    combined_thresholds = (0.58, 0.60, 0.62, 0.64, 0.66, 0.68, 0.70, 0.72)
+    combined_floors = (0.00, 0.025, 0.05, 0.075, 0.10, 0.125)
+    for probability_name, probability in probability_layers:
+        probability_rank_values = probability_rank(probability).astype(np.float64)
+        for prob_weight, amount_weight, tail_weight, low_weight in combined_profiles:
+            combined = (
+                prob_weight * probability_rank_values
+                + amount_weight * amount_rank
+                + tail_weight * tail_rank
+                - low_weight * low_rank
+            )
+            combined_rank = probability_rank(combined).astype(np.float64)
+            profile_name = (
+                f"p{prob_weight:.2f}_a{amount_weight:.2f}_t{tail_weight:.2f}_l{low_weight:.2f}"
+            )
+            for threshold in combined_thresholds:
+                gate = (combined_rank >= threshold).astype(np.float64)
+                for floor in combined_floors:
+                    layer = floor + (1.0 - floor) * gate
+                    add_variant(
+                        variants,
+                        f"SIP_combo_soft_{probability_name}_{profile_name}_t{threshold:.2f}_floor{floor:.3f}",
+                        base_prediction,
+                        layer,
+                    )
+
+    two_tier_profiles = [
+        # high_threshold, mid_threshold, mid_amount_cut, mid_multiplier, low_floor, top_floor, scale
+        (0.72, 0.58, 0.78, 0.55, 0.00, 0.10, 0.98),
+        (0.72, 0.60, 0.76, 0.60, 0.00, 0.12, 0.98),
+        (0.74, 0.60, 0.78, 0.60, 0.00, 0.14, 0.96),
+        (0.74, 0.62, 0.76, 0.65, 0.00, 0.16, 0.96),
+        (0.76, 0.62, 0.78, 0.65, 0.025, 0.16, 0.94),
+        (0.76, 0.64, 0.76, 0.70, 0.025, 0.18, 0.94),
+    ]
+    for probability_name, probability in probability_layers:
+        probability_rank_values = probability_rank(probability).astype(np.float64)
+        combined_rank = probability_rank(0.60 * probability_rank_values + 0.25 * amount_rank + 0.15 * tail_rank).astype(np.float64)
+        for high_threshold, mid_threshold, mid_amount_cut, mid_multiplier, low_floor, top_floor, scale in two_tier_profiles:
+            high_gate = combined_rank >= high_threshold
+            mid_gate = (combined_rank >= mid_threshold) & (amount_rank >= mid_amount_cut)
+            layer = np.full(len(base_prediction), low_floor, dtype=np.float64)
+            layer[mid_gate] = np.maximum(layer[mid_gate], mid_multiplier)
+            layer[high_gate] = 1.0
+            top_mask = (amount_rank >= 0.88) | ((tail_rank >= 0.80) & (amount_rank >= 0.72))
+            layer[~high_gate & top_mask] = np.maximum(layer[~high_gate & top_mask], top_floor)
+            add_variant(
+                variants,
+                f"SIP_combo_two_tier_{probability_name}_hi{high_threshold:.2f}_mid{mid_threshold:.2f}_amt{mid_amount_cut:.2f}_midmul{mid_multiplier:.2f}_top{top_floor:.2f}_scale{scale:.2f}",
+                base_prediction,
+                np.clip(layer * scale, 0.0, 1.2),
+            )
+
+
 def add_band_shape_variants(
     variants: dict[str, np.ndarray],
     base_prediction: np.ndarray,
@@ -452,6 +629,7 @@ def build_variants(
     calibrated_probability: np.ndarray,
     tail_probability: np.ndarray | None = None,
     band_probability: np.ndarray | None = None,
+    low_probability: np.ndarray | None = None,
     raw_gamma_scales: dict[float, float] | None = None,
 ) -> dict[str, np.ndarray]:
     variants: dict[str, np.ndarray] = {"A_regressor_only": base_prediction.astype(np.float32)}
@@ -520,6 +698,14 @@ def build_variants(
             )
 
     add_constrained_soft_gate_amount_variants(variants, base_prediction, raw_probability, calibrated_probability)
+    add_sip_dense_gate_variants(
+        variants,
+        base_prediction,
+        raw_probability,
+        calibrated_probability,
+        tail_probability,
+        low_probability,
+    )
     if tail_probability is not None:
         add_band_shape_variants(
             variants,
@@ -533,7 +719,12 @@ def build_variants(
     return variants
 
 
-def score_variants(frame: pd.DataFrame, variants: dict[str, np.ndarray], split: str) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+def score_variants(
+    frame: pd.DataFrame,
+    variants: dict[str, np.ndarray],
+    split: str,
+    selection_score_col: str,
+) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     summary_rows = []
     positive_decile_rows = []
     all_decile_rows = []
@@ -547,10 +738,76 @@ def score_variants(frame: pd.DataFrame, variants: dict[str, np.ndarray], split: 
         positive_decile_rows.append(actual_positive_decile_metrics(work, col, name, split))
         all_decile_rows.append(all_row_value_decile_metrics(work, col, name, split))
     return (
-        pd.DataFrame.from_records(summary_rows).sort_values("score"),
+        pd.DataFrame.from_records(summary_rows).sort_values(selection_score_col),
         pd.concat(positive_decile_rows, ignore_index=True),
         pd.concat(all_decile_rows, ignore_index=True),
     )
+
+
+def zero_leak_diagnostics(
+    frame: pd.DataFrame,
+    prediction: np.ndarray,
+    split: str,
+    variant: str,
+) -> pd.DataFrame:
+    work = pd.DataFrame(
+        {
+            "sales_target": frame["sales_target"].to_numpy(dtype=np.float32),
+            "prediction": prediction.astype(np.float32),
+            "raw_probability": frame["raw_probability"].to_numpy(dtype=np.float32),
+            "calibrated_probability": frame["calibrated_probability"].to_numpy(dtype=np.float32),
+            "positive_regressor_prediction": frame["positive_regressor_prediction"].to_numpy(dtype=np.float32),
+        }
+    )
+    work["zero_row"] = work["sales_target"] <= 0
+    for col in ("raw_probability", "calibrated_probability", "positive_regressor_prediction"):
+        work[f"{col}_decile"] = pd.qcut(
+            work[col].rank(method="first"),
+            q=min(10, len(work)),
+            labels=False,
+            duplicates="drop",
+        )
+
+    actual_sum = float(work["sales_target"].sum())
+    rows: list[dict[str, object]] = []
+
+    def append_group(axis: str, group_id: object, group: pd.DataFrame) -> None:
+        zero_pred = float(group.loc[group["zero_row"], "prediction"].sum())
+        pred_sum = float(group["prediction"].sum())
+        actual = float(group["sales_target"].sum())
+        rows.append(
+            {
+                "split": split,
+                "variant": variant,
+                "axis": axis,
+                "group": str(group_id),
+                "rows": int(len(group)),
+                "zero_rows": int(group["zero_row"].sum()),
+                "actual_sum": actual,
+                "predicted_sum": pred_sum,
+                "zero_predicted_sum": zero_pred,
+                "zero_leak_ratio_total_actual": safe_ratio(zero_pred, actual_sum),
+                "zero_predicted_share_of_group_prediction": safe_ratio(zero_pred, pred_sum),
+                "group_unit_ratio": safe_ratio(pred_sum, actual),
+                "raw_probability_mean": float(group["raw_probability"].mean()),
+                "calibrated_probability_mean": float(group["calibrated_probability"].mean()),
+                "positive_regressor_prediction_mean": float(group["positive_regressor_prediction"].mean()),
+            }
+        )
+
+    for col in ("raw_probability_decile", "calibrated_probability_decile", "positive_regressor_prediction_decile"):
+        for group_id, group in work.groupby(col, observed=True):
+            append_group(col, int(group_id) + 1, group)
+
+    for group_id, group in work.groupby(["raw_probability_decile", "positive_regressor_prediction_decile"], observed=True):
+        raw_decile, amount_decile = group_id
+        append_group(
+            "raw_probability_decile_x_positive_regressor_prediction_decile",
+            f"raw_D{int(raw_decile) + 1}_amount_D{int(amount_decile) + 1}",
+            group,
+        )
+
+    return pd.DataFrame.from_records(rows)
 
 
 def parse_args() -> argparse.Namespace:
@@ -567,6 +824,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--tail-external-alpha", type=float, default=None)
     parser.add_argument("--tail-low-alpha", type=float, default=None)
     parser.add_argument("--tail-scale", type=float, default=None)
+    parser.add_argument("--selection-objective", choices=["legacy", "sip"], default="sip")
     parser.add_argument("--write-predictions", action="store_true")
     return parser.parse_args()
 
@@ -616,6 +874,7 @@ def main() -> int:
     run_dir = args.output_dir / args.family.lower() / "incidence_grid" / datetime.now().strftime("%Y%m%d_%H%M%S")
     run_dir.mkdir(parents=True, exist_ok=True)
     log(f"Scoring all-row pipeline grid into {run_dir}")
+    selection_score_col = "sip_score" if args.selection_objective == "sip" else "score"
 
     split_outputs = {}
     validation_summary_for_selection = None
@@ -663,6 +922,7 @@ def main() -> int:
             split_df["calibrated_probability"].to_numpy(dtype=np.float32),
             tail_probability=tail_probability,
             band_probability=band_probability,
+            low_probability=low_probability,
             raw_gamma_scales=raw_gamma_scales,
         )
         add_variant(
@@ -671,7 +931,7 @@ def main() -> int:
             regressor_prediction,
             split_df["positive_sale_flag"].to_numpy(dtype=np.float32),
         )
-        summary, positive_deciles, all_deciles = score_variants(split_df, variants, split)
+        summary, positive_deciles, all_deciles = score_variants(split_df, variants, split, selection_score_col)
         summary.to_csv(run_dir / f"{split}_variant_summary.csv", index=False)
         positive_deciles.to_csv(run_dir / f"{split}_positive_actual_decile_metrics.csv", index=False)
         all_deciles.to_csv(run_dir / f"{split}_all_row_actual_value_decile_metrics.csv", index=False)
@@ -710,6 +970,14 @@ def main() -> int:
         split_outputs["test"]["positive_deciles"]["variant"] == selected_variant
     ]
     selected_test_deciles.to_csv(run_dir / "selected_test_positive_actual_decile_metrics.csv", index=False)
+    for split in ("valid", "test"):
+        selected_prediction = split_outputs[split]["variants"][selected_variant]
+        zero_leak_diagnostics(
+            split_outputs[split]["frame"],
+            selected_prediction,
+            split,
+            selected_variant,
+        ).to_csv(run_dir / f"selected_{split}_zero_leak_diagnostics.csv", index=False)
 
     payload = {
         "created_at": datetime.now().isoformat(timespec="seconds"),
@@ -719,6 +987,8 @@ def main() -> int:
         "calibration_run_dir": str(args.calibration_run_dir),
         "external_signal_run_dir": str(external_signal_run_dir) if external_signal_run_dir is not None else None,
         "selected_variant_by_validation_score": selected_variant,
+        "selection_objective": args.selection_objective,
+        "selection_score_col": selection_score_col,
         "validation_selected_summary": selected_validation_summary,
         "test_selected_summary": selected_test_summary,
         "base_objective": base_objective,
@@ -729,6 +999,7 @@ def main() -> int:
         "low_layer_loaded": low_booster is not None,
         "external_signal_loaded": external_booster is not None,
         "scoring_formula": "7.5*d1_d3_over_115 + 2.5*d4_d6_outside_0.90_1.10 + 7*d7_d10_below_1.10 + 4*d7_d10_above_1.30 + 2.5*total_below_1.15 + 2*total_above_1.35 + 2*zero_leak + 0.35*WAPE",
+        "sip_scoring_formula": "20*zero_leak_over_0.80 + 10*total_over_1.40 + 3*total_under_0.90 + 9*bottom30_over_1.40 + 6*max_decile_over_1.50 + 8*top30_under_0.78 + 8*top10_under_0.82 + 3*min_decile_under_0.65 + 0.25*WAPE",
     }
     (run_dir / "run_summary.json").write_text(json.dumps(payload, indent=2), encoding="utf-8")
     log("Done")

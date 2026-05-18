@@ -1,0 +1,12 @@
+{
+  "created_at": "2026-05-18T10:17:51",
+  "scoring_dir": "new/output/JulyScoringFullLabel/sip/20260518_100055",
+  "rounding": "ceil(row prediction)",
+  "outputs": {
+    "summary_comparison": "new/output/JulyScoringFullLabel/sip/20260518_100055/ceiled_group_alignment/summary_comparison.csv",
+    "alignment_metrics": "new/output/JulyScoringFullLabel/sip/20260518_100055/ceiled_group_alignment/alignment_metrics.csv",
+    "decile_comparison_ceiled": "new/output/JulyScoringFullLabel/sip/20260518_100055/ceiled_group_alignment/decile_comparison_ceiled.csv",
+    "decile_mean_units_ceiled_wide": "new/output/JulyScoringFullLabel/sip/20260518_100055/ceiled_group_alignment/decile_mean_units_ceiled_wide.csv",
+    "decile_median_units_ceiled_wide": "new/output/JulyScoringFullLabel/sip/20260518_100055/ceiled_group_alignment/decile_median_units_ceiled_wide.csv"
+  }
+}

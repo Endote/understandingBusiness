@@ -1,0 +1,22 @@
+{
+  "created_at": "2026-05-18T10:06:41",
+  "family": "SIP",
+  "run_dir": "new/output/JulyScoringFullLabel/sip/20260518_100055",
+  "model_run_dir": "new/output/JulyScoringFullLabel/sip_full_deployment_models/20260518_080836",
+  "row_count": 449437,
+  "product_count": 183,
+  "store_count": 25180,
+  "onsaledate_min": "2024-06-28",
+  "onsaledate_max": "2024-07-22",
+  "main_prediction": "sip_prediction_892",
+  "research_prediction": "sip_prediction_lift_11655",
+  "outputs": {
+    "predictions_csv": "new/output/JulyScoringFullLabel/sip/20260518_100055/july_holdout_sip_predictions.csv",
+    "predictions_parquet": "new/output/JulyScoringFullLabel/sip/20260518_100055/july_holdout_sip_predictions.parquet",
+    "prediction_summary": "new/output/JulyScoringFullLabel/sip/20260518_100055/prediction_summary.csv",
+    "summary_by_onsaledate": "new/output/JulyScoringFullLabel/sip/20260518_100055/summary_by_onsaledate.csv",
+    "summary_by_title": "new/output/JulyScoringFullLabel/sip/20260518_100055/summary_by_title.csv",
+    "summary_by_classoftrade": "new/output/JulyScoringFullLabel/sip/20260518_100055/summary_by_classoftrade.csv",
+    "summary_by_store_chain": "new/output/JulyScoringFullLabel/sip/20260518_100055/summary_by_store_chain.csv"
+  }
+}

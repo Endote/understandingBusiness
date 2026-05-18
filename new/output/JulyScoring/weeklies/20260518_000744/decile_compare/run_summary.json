@@ -1,0 +1,12 @@
+{
+  "created_at": "2026-05-18T00:22:34",
+  "scoring_dir": "/Users/norbert.jaworski/Documents/uni/2 rok/understandingBusiness/project/new/output/JulyScoring/weeklies/20260518_000744",
+  "holdout_predictions_path": "/Users/norbert.jaworski/Documents/uni/2 rok/understandingBusiness/project/new/output/JulyScoring/weeklies/20260518_000744/july_holdout_weeklies_predictions.parquet",
+  "labeled_source": "core.fact_sale joined core.dim_product where type='Weeklies' and drawqty<>0",
+  "model_train_source": "/Users/norbert.jaworski/Documents/uni/2 rok/understandingBusiness/project/new/output/modeling_datasets/weeklies/classifier_all.parquet",
+  "outputs": {
+    "unit_decile_comparison": "/Users/norbert.jaworski/Documents/uni/2 rok/understandingBusiness/project/new/output/JulyScoring/weeklies/20260518_000744/decile_compare/unit_decile_comparison.csv",
+    "top_unit_concentration": "/Users/norbert.jaworski/Documents/uni/2 rok/understandingBusiness/project/new/output/JulyScoring/weeklies/20260518_000744/decile_compare/top_unit_concentration.csv",
+    "unit_distribution_summary": "/Users/norbert.jaworski/Documents/uni/2 rok/understandingBusiness/project/new/output/JulyScoring/weeklies/20260518_000744/decile_compare/unit_distribution_summary.csv"
+  }
+}

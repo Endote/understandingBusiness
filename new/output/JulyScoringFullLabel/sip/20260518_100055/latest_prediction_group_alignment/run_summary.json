@@ -1,0 +1,13 @@
+{
+  "created_at": "2026-05-18T10:52:44",
+  "scoring_dir": "new/output/JulyScoringFullLabel/sip/20260518_100055",
+  "prediction_path": "new/output/JulyScoringFullLabel/sip/20260518_100055/july_holdout_sip_predictions.parquet",
+  "prediction_column": "july_holdout_prediction",
+  "outputs": {
+    "summary_comparison": "new/output/JulyScoringFullLabel/sip/20260518_100055/latest_prediction_group_alignment/summary_comparison.csv",
+    "alignment_metrics": "new/output/JulyScoringFullLabel/sip/20260518_100055/latest_prediction_group_alignment/alignment_metrics.csv",
+    "decile_comparison": "new/output/JulyScoringFullLabel/sip/20260518_100055/latest_prediction_group_alignment/decile_comparison.csv",
+    "decile_mean_units_wide": "new/output/JulyScoringFullLabel/sip/20260518_100055/latest_prediction_group_alignment/decile_mean_units_wide.csv",
+    "decile_median_units_wide": "new/output/JulyScoringFullLabel/sip/20260518_100055/latest_prediction_group_alignment/decile_median_units_wide.csv"
+  }
+}

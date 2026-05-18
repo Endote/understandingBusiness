@@ -78,6 +78,9 @@ def predict_classifier(booster: xgb.Booster, frame: pd.DataFrame, artifact) -> n
 
 def binary_metrics(frame: pd.DataFrame, probability: np.ndarray, split: str) -> dict[str, object]:
     y = labels(frame)
+    sales = frame["sales_target"].to_numpy(dtype=np.float32)
+    broad_tail = sales >= 3.0
+    high_tail = sales >= 5.0
     clipped = np.clip(probability, 1e-6, 1 - 1e-6)
     result = {
         "split": split,
@@ -96,9 +99,29 @@ def binary_metrics(frame: pd.DataFrame, probability: np.ndarray, split: str) -> 
         n = max(1, math.ceil(len(frame) * top_frac))
         idx = np.argsort(probability)[-n:]
         result[f"positive_recall_at_pred_top_{int(top_frac * 100)}"] = float(y[idx].sum() / max(y.sum(), 1.0))
+        result[f"tail_ge3_recall_at_pred_top_{int(top_frac * 100)}"] = float(broad_tail[idx].sum() / max(broad_tail.sum(), 1.0))
+        result[f"tail_ge5_recall_at_pred_top_{int(top_frac * 100)}"] = float(high_tail[idx].sum() / max(high_tail.sum(), 1.0))
         result[f"positive_rate_at_pred_top_{int(top_frac * 100)}"] = float(y[idx].mean())
         result[f"sales_units_at_pred_top_{int(top_frac * 100)}"] = float(frame.iloc[idx]["sales_target"].sum())
     return result
+
+
+def training_weights(
+    frame: pd.DataFrame,
+    positive_weight: float,
+    tail_positive_threshold: float,
+    tail_positive_weight: float,
+) -> np.ndarray | None:
+    if positive_weight == 1.0 and tail_positive_weight == 1.0:
+        return None
+    weights = np.ones(len(frame), dtype=np.float32)
+    positive_mask = frame["positive_sale_flag"].to_numpy(dtype=np.float32) > 0.0
+    if positive_weight != 1.0:
+        weights[positive_mask] *= positive_weight
+    if tail_positive_weight != 1.0:
+        tail_mask = positive_mask & (frame["sales_target"].to_numpy(dtype=np.float32) >= tail_positive_threshold)
+        weights[tail_mask] *= tail_positive_weight
+    return weights
 
 
 def calibration_table(frame: pd.DataFrame, probability: np.ndarray, bins: int) -> pd.DataFrame:
@@ -203,6 +226,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--subsample", type=float, default=0.85)
     parser.add_argument("--colsample-bytree", type=float, default=0.85)
     parser.add_argument("--scale-pos-weight", type=float, default=0.0)
+    parser.add_argument("--positive-weight", type=float, default=1.0)
+    parser.add_argument("--tail-positive-threshold", type=float, default=3.0)
+    parser.add_argument("--tail-positive-weight", type=float, default=1.0)
     parser.add_argument(
         "--drop-feature-substrings",
         default="affinity,embedding_pca_",
@@ -240,7 +266,13 @@ def main() -> int:
     log("Encoding train and validation matrices")
     train_encoded = transform_frame(train_df, artifact, "tweedie", "uniform")
     valid_encoded = transform_frame(valid_df, artifact, "tweedie", "uniform")
-    dtrain = xgb.DMatrix(train_encoded.matrix, label=y_train, feature_names=artifact.feature_names)
+    sample_weight = training_weights(
+        train_df,
+        positive_weight=args.positive_weight,
+        tail_positive_threshold=args.tail_positive_threshold,
+        tail_positive_weight=args.tail_positive_weight,
+    )
+    dtrain = xgb.DMatrix(train_encoded.matrix, label=y_train, weight=sample_weight, feature_names=artifact.feature_names)
     dvalid = xgb.DMatrix(valid_encoded.matrix, label=labels(valid_df), feature_names=artifact.feature_names)
 
     run_dir = (
@@ -260,7 +292,10 @@ def main() -> int:
         "Training incidence classifier: "
         f"{len(train_df)} train rows, {len(valid_df)} validation rows, "
         f"train positive rate {positives / max(len(train_df), 1):.4f}, "
-        f"scale_pos_weight {scale_pos_weight:.3f}"
+        f"scale_pos_weight {scale_pos_weight:.3f}, "
+        f"positive_weight {args.positive_weight:.3f}, "
+        f"tail_positive_threshold {args.tail_positive_threshold:.3f}, "
+        f"tail_positive_weight {args.tail_positive_weight:.3f}"
     )
     booster = xgb.train(
         params=classifier_params(
@@ -336,6 +371,9 @@ def main() -> int:
             "subsample": args.subsample,
             "colsample_bytree": args.colsample_bytree,
             "scale_pos_weight": scale_pos_weight,
+            "positive_weight": args.positive_weight,
+            "tail_positive_threshold": args.tail_positive_threshold,
+            "tail_positive_weight": args.tail_positive_weight,
         },
         "best_iteration": best_iteration_value(booster),
         "best_score": best_score_value(booster),

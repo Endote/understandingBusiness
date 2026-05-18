@@ -1,0 +1,17 @@
+{
+  "created_at": "2026-05-18T01:18:21",
+  "scoring_dir": "new/output/JulyScoringFullLabel/weeklies/20260518_010259",
+  "prediction_path": "new/output/JulyScoringFullLabel/weeklies/20260518_010259/twotier_gate_grid/july_holdout_weeklies_predictions_twotier_best.parquet",
+  "rounding": "ceil(row prediction)",
+  "outputs": {
+    "alignment_metrics": "new/output/JulyScoringFullLabel/weeklies/20260518_010259/ceiled_group_alignment/alignment_metrics.csv",
+    "title": "new/output/JulyScoringFullLabel/weeklies/20260518_010259/ceiled_group_alignment/alignment_by_title.csv",
+    "segment": "new/output/JulyScoringFullLabel/weeklies/20260518_010259/ceiled_group_alignment/alignment_by_segment.csv",
+    "subsegment": "new/output/JulyScoringFullLabel/weeklies/20260518_010259/ceiled_group_alignment/alignment_by_subsegment.csv",
+    "classoftrade": "new/output/JulyScoringFullLabel/weeklies/20260518_010259/ceiled_group_alignment/alignment_by_classoftrade.csv",
+    "store_chain": "new/output/JulyScoringFullLabel/weeklies/20260518_010259/ceiled_group_alignment/alignment_by_store_chain.csv",
+    "title_segment": "new/output/JulyScoringFullLabel/weeklies/20260518_010259/ceiled_group_alignment/alignment_by_title_segment.csv",
+    "title_classoftrade": "new/output/JulyScoringFullLabel/weeklies/20260518_010259/ceiled_group_alignment/alignment_by_title_classoftrade.csv",
+    "segment_classoftrade": "new/output/JulyScoringFullLabel/weeklies/20260518_010259/ceiled_group_alignment/alignment_by_segment_classoftrade.csv"
+  }
+}

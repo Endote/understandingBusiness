@@ -1,0 +1,164 @@
+{
+  "created_at": "2026-05-18T09:53:34",
+  "run_dir": "/Users/norbert.jaworski/Documents/uni/2 rok/understandingBusiness/project/new/output/JulyScoringFullLabel/sip_full_deployment_models/20260518_080836",
+  "training_scope": "all currently labeled SIP rows",
+  "models": {
+    "amount": {
+      "run_dir": "/Users/norbert.jaworski/Documents/uni/2 rok/understandingBusiness/project/new/output/JulyScoringFullLabel/sip_full_deployment_models/20260518_080836/models/regressor_positive_q40",
+      "rows": 2505611,
+      "rounds": 79,
+      "objective": "quantile_40"
+    },
+    "tweedie": {
+      "run_dir": "/Users/norbert.jaworski/Documents/uni/2 rok/understandingBusiness/project/new/output/JulyScoringFullLabel/sip_full_deployment_models/20260518_080836/models/regressor_positive_tweedie",
+      "rows": 2505611,
+      "rounds": 293,
+      "objective": "tweedie"
+    },
+    "tail": {
+      "run_dir": "/Users/norbert.jaworski/Documents/uni/2 rok/understandingBusiness/project/new/output/JulyScoringFullLabel/sip_full_deployment_models/20260518_080836/models/tail_layer",
+      "rows": 2505611,
+      "tail_rounds": 180,
+      "band_rounds": 180,
+      "low_rounds": 180
+    },
+    "base_incidence": {
+      "run_dir": "/Users/norbert.jaworski/Documents/uni/2 rok/understandingBusiness/project/new/output/JulyScoringFullLabel/sip_full_deployment_models/20260518_080836/models/incidence_base",
+      "rows": 10870298,
+      "rounds": 64,
+      "positive_rate": 0.23050066828727722
+    },
+    "avg_incidence": {
+      "run_dir": "/Users/norbert.jaworski/Documents/uni/2 rok/understandingBusiness/project/new/output/JulyScoringFullLabel/sip_full_deployment_models/20260518_080836/models/incidence_avg_sales",
+      "rows": 10870298,
+      "rounds": 153,
+      "positive_rate": 0.23050066828727722
+    },
+    "amount_band": {
+      "run_dir": "/Users/norbert.jaworski/Documents/uni/2 rok/understandingBusiness/project/new/output/JulyScoringFullLabel/sip_full_deployment_models/20260518_080836/models/amount_band_multiclass",
+      "rows": 10870298,
+      "rounds": 36
+    },
+    "cumulative": {
+      "run_dir": "/Users/norbert.jaworski/Documents/uni/2 rok/understandingBusiness/project/new/output/JulyScoringFullLabel/sip_full_deployment_models/20260518_080836/models/cumulative_amount_incidence",
+      "rows": 10870298,
+      "models": [
+        {
+          "threshold": 1.0,
+          "name": "ge1",
+          "rounds": 87,
+          "xgboost_params": {
+            "objective": "binary:logistic",
+            "eval_metric": [
+              "logloss",
+              "aucpr",
+              "auc"
+            ],
+            "tree_method": "hist",
+            "max_depth": 6,
+            "min_child_weight": 50.0,
+            "eta": 0.05,
+            "subsample": 0.85,
+            "colsample_bytree": 0.85,
+            "scale_pos_weight": 3.588116617462328,
+            "seed": 42
+          }
+        },
+        {
+          "threshold": 2.0,
+          "name": "ge2",
+          "rounds": 89,
+          "xgboost_params": {
+            "objective": "binary:logistic",
+            "eval_metric": [
+              "logloss",
+              "aucpr",
+              "auc"
+            ],
+            "tree_method": "hist",
+            "max_depth": 6,
+            "min_child_weight": 50.0,
+            "eta": 0.05,
+            "subsample": 0.85,
+            "colsample_bytree": 0.85,
+            "scale_pos_weight": 8.153041901831577,
+            "seed": 42
+          }
+        },
+        {
+          "threshold": 3.0,
+          "name": "ge3",
+          "rounds": 187,
+          "xgboost_params": {
+            "objective": "binary:logistic",
+            "eval_metric": [
+              "logloss",
+              "aucpr",
+              "auc"
+            ],
+            "tree_method": "hist",
+            "max_depth": 6,
+            "min_child_weight": 50.0,
+            "eta": 0.05,
+            "subsample": 0.85,
+            "colsample_bytree": 0.85,
+            "scale_pos_weight": 15.957352391329893,
+            "seed": 42
+          }
+        },
+        {
+          "threshold": 4.0,
+          "name": "ge4",
+          "rounds": 87,
+          "xgboost_params": {
+            "objective": "binary:logistic",
+            "eval_metric": [
+              "logloss",
+              "aucpr",
+              "auc"
+            ],
+            "tree_method": "hist",
+            "max_depth": 6,
+            "min_child_weight": 50.0,
+            "eta": 0.05,
+            "subsample": 0.85,
+            "colsample_bytree": 0.85,
+            "scale_pos_weight": 20.0,
+            "seed": 42
+          }
+        },
+        {
+          "threshold": 5.0,
+          "name": "ge5",
+          "rounds": 218,
+          "xgboost_params": {
+            "objective": "binary:logistic",
+            "eval_metric": [
+              "logloss",
+              "aucpr",
+              "auc"
+            ],
+            "tree_method": "hist",
+            "max_depth": 6,
+            "min_child_weight": 50.0,
+            "eta": 0.05,
+            "subsample": 0.85,
+            "colsample_bytree": 0.85,
+            "scale_pos_weight": 20.0,
+            "seed": 42
+          }
+        }
+      ]
+    },
+    "zero_veto": {
+      "run_dir": "/Users/norbert.jaworski/Documents/uni/2 rok/understandingBusiness/project/new/output/JulyScoringFullLabel/sip_full_deployment_models/20260518_080836/models/zero_leak_veto",
+      "rows": 1029094,
+      "rounds": 178
+    },
+    "low_veto": {
+      "run_dir": "/Users/norbert.jaworski/Documents/uni/2 rok/understandingBusiness/project/new/output/JulyScoringFullLabel/sip_full_deployment_models/20260518_080836/models/low_positive_veto",
+      "rows": 1029094,
+      "rounds": 192
+    }
+  }
+}

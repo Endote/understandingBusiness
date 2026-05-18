@@ -1,0 +1,10 @@
+{
+  "created_at": "2026-05-18T01:09:28",
+  "old_scoring_dir": "new/output/JulyScoring/weeklies/20260518_000744",
+  "new_scoring_dir": "new/output/JulyScoringFullLabel/weeklies/20260518_010259",
+  "twotier_prediction_path": "new/output/JulyScoringFullLabel/weeklies/20260518_010259/twotier_gate_grid/july_holdout_weeklies_predictions_twotier_best.parquet",
+  "outputs": {
+    "summary_comparison": "new/output/JulyScoringFullLabel/weeklies/20260518_010259/final_comparison_report/summary_comparison.csv",
+    "all_row_decile_comparison": "new/output/JulyScoringFullLabel/weeklies/20260518_010259/final_comparison_report/all_row_decile_comparison.csv"
+  }
+}

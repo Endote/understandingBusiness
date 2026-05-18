@@ -1,0 +1,13 @@
+{
+  "created_at": "2026-05-18T12:16:41",
+  "scoring_dir": "new/output/JulyScoringFullLabel/sip/20260518_100055/soft_gate_distribution_grid/20260518_120302/best",
+  "prediction_path": "new/output/JulyScoringFullLabel/sip/20260518_100055/soft_gate_distribution_grid/20260518_120302/best/july_holdout_sip_predictions.parquet",
+  "prediction_column": "july_holdout_prediction",
+  "outputs": {
+    "summary_comparison": "new/output/JulyScoringFullLabel/sip/20260518_100055/soft_gate_distribution_grid/20260518_120302/best/latest_prediction_group_alignment/summary_comparison.csv",
+    "alignment_metrics": "new/output/JulyScoringFullLabel/sip/20260518_100055/soft_gate_distribution_grid/20260518_120302/best/latest_prediction_group_alignment/alignment_metrics.csv",
+    "decile_comparison": "new/output/JulyScoringFullLabel/sip/20260518_100055/soft_gate_distribution_grid/20260518_120302/best/latest_prediction_group_alignment/decile_comparison.csv",
+    "decile_mean_units_wide": "new/output/JulyScoringFullLabel/sip/20260518_100055/soft_gate_distribution_grid/20260518_120302/best/latest_prediction_group_alignment/decile_mean_units_wide.csv",
+    "decile_median_units_wide": "new/output/JulyScoringFullLabel/sip/20260518_100055/soft_gate_distribution_grid/20260518_120302/best/latest_prediction_group_alignment/decile_median_units_wide.csv"
+  }
+}

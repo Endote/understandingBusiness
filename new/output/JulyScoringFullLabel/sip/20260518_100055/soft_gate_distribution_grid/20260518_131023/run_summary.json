@@ -1,0 +1,18 @@
+{
+  "created_at": "2026-05-18T13:24:31",
+  "source_scoring_dir": "new/output/JulyScoringFullLabel/sip/20260518_100055",
+  "run_root": "new/output/JulyScoringFullLabel/sip/20260518_100055/soft_gate_distribution_grid/20260518_131023",
+  "trials": 10000,
+  "candidate_count": 10800,
+  "screen_sample_rows": 150000,
+  "screen_top_k": 1000,
+  "objective_profile": "integer_ratio_groups",
+  "best_candidate_id": 9479,
+  "best_dir": "new/output/JulyScoringFullLabel/sip/20260518_100055/soft_gate_distribution_grid/20260518_131023/best",
+  "outputs": {
+    "screen_grid": "new/output/JulyScoringFullLabel/sip/20260518_100055/soft_gate_distribution_grid/20260518_131023/soft_gate_distribution_screen_grid.csv",
+    "grid": "new/output/JulyScoringFullLabel/sip/20260518_100055/soft_gate_distribution_grid/20260518_131023/soft_gate_distribution_grid.csv",
+    "selected_candidates": "new/output/JulyScoringFullLabel/sip/20260518_100055/soft_gate_distribution_grid/20260518_131023/selected_candidates.csv",
+    "best": "new/output/JulyScoringFullLabel/sip/20260518_100055/soft_gate_distribution_grid/20260518_131023/best"
+  }
+}
